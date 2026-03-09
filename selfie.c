@@ -12199,6 +12199,7 @@ uint64_t selfie(uint64_t extras) {
   if (number_of_remaining_arguments() == 0)
     return EXITCODE_NOARGUMENTS;
   else {
+    printf("%s: This is Zuher Khalaf's Selfie!\n", selfie_name);
     printf("%s: ================================================================================\n", selfie_name);
     printf("%s: this is the selfie system from %s with\n", selfie_name, SELFIE_URL);
     printf("%s: %lu-bit unsigned integers and %lu-bit pointers hosted on ", selfie_name,
@@ -12325,7 +12326,7 @@ int main(int argc, char** argv) {
   init_system();
   init_target();
   init_kernel();
-
+  
   exit_code = selfie(0);
 
   return exit_selfie(exit_code, " [ ( -m | -d | -r | -y ) 0-4096 ... ]");
