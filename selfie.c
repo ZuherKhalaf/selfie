@@ -4688,7 +4688,12 @@ void compile_cstar() {
   uint64_t type;
   char* variable_or_procedure;
   uint64_t* entry;
-  uint64_t array_size;
+  uint64_t* dims_arr;
+  uint64_t ndims;
+  uint64_t total;
+  uint64_t* strides_arr;
+  uint64_t stride;
+  uint64_t dim_idx;
   uint64_t i;
 
   while (symbol != SYM_EOF) {
@@ -4712,27 +4717,48 @@ void compile_cstar() {
 
         if (symbol != SYM_LPARENTHESIS) {
           if (symbol == SYM_LBRACKET) {
-            // type identifier "[" size "]" ";"
-            // global array declaration
-            get_symbol(); // consume [
+            // type identifier "[" dim1 "]" ("[" dim2 "]")* ";"
+            // global (multi-dimensional) array declaration
+            dims_arr = smalloc(8 * WORDSIZE);
+            ndims    = 0;
+            total    = 1;
 
-            if (symbol == SYM_INTEGER) {
-              array_size = literal;
-              get_symbol();
-            } else {
-              syntax_error_expected_symbol(SYM_INTEGER);
-              array_size = 1;
+            while (symbol == SYM_LBRACKET && ndims < 8) {
+              get_symbol(); // consume [
+
+              if (symbol == SYM_INTEGER) {
+                *(dims_arr + ndims) = literal;
+                get_symbol();
+              } else {
+                syntax_error_expected_symbol(SYM_INTEGER);
+                *(dims_arr + ndims) = 1;
+              }
+
+              total = total * *(dims_arr + ndims);
+              ndims = ndims + 1;
+
+              get_expected_symbol(SYM_RBRACKET);
             }
 
-            get_expected_symbol(SYM_RBRACKET);
+            // compute strides from last dimension to first
+            // strides_arr[0] = ndims, strides_arr[1+k] = stride for dimension k
+            strides_arr = smalloc((ndims + 1) * WORDSIZE);
+            *(strides_arr) = ndims;
+            dim_idx = ndims;
+            stride  = 1;
+            while (dim_idx > 0) {
+              dim_idx = dim_idx - 1;
+              *(strides_arr + 1 + dim_idx) = stride;
+              stride = stride * *(dims_arr + dim_idx);
+            }
 
-            data_size = data_size + array_size * WORDSIZE;
+            data_size = data_size + total * WORDSIZE;
 
             entry = create_symbol_table_entry(GLOBAL_TABLE, variable_or_procedure,
-              line_number, ARRAY, type, array_size, -data_size);
+              line_number, ARRAY, type, (uint64_t) strides_arr, -data_size);
 
             i = 0;
-            while (i < array_size) {
+            while (i < total) {
               emit_data_word(0, -data_size + i * WORDSIZE, line_number);
               i = i + 1;
             }
@@ -5090,6 +5116,10 @@ void compile_assignment(char* variable) {
   uint64_t offset;
   uint64_t ltype;
   uint64_t rtype;
+  uint64_t* strides_ptr_ca;
+  uint64_t ndims_ca;
+  uint64_t dim_ca;
+  uint64_t stride_ca;
 
   // assert: identifier has already been parsed if variable != (char*) 0
 
@@ -5103,29 +5133,41 @@ void compile_assignment(char* variable) {
 
     if (get_class(entry) == ARRAY) {
       if (symbol == SYM_LBRACKET) {
-        // array element assignment: a[i] = v
-        get_symbol(); // consume [
+        // array element assignment: a[i1][i2]...[ik] = v
+        strides_ptr_ca = (uint64_t*) get_value(entry);
+        ndims_ca       = *(strides_ptr_ca);
 
-        // load base address of array element 0
         load_address(entry);
 
-        // compile index expression
+        // first subscript
+        get_symbol(); // consume [
         compile_logicalor();
+        stride_ca = *(strides_ptr_ca + 1);
+        emit_multiply_by(current_temporary(), stride_ca);
+        get_expected_symbol(SYM_RBRACKET);
 
-        // index * WORDSIZE
+        // subsequent subscripts
+        dim_ca = 1;
+        while (dim_ca < ndims_ca && symbol == SYM_LBRACKET) {
+          get_symbol(); // consume [
+          compile_logicalor();
+          stride_ca = *(strides_ptr_ca + 1 + dim_ca);
+          emit_multiply_by(current_temporary(), stride_ca);
+          emit_add(previous_temporary(), previous_temporary(), current_temporary());
+          tfree(1);
+          get_expected_symbol(SYM_RBRACKET);
+          dim_ca = dim_ca + 1;
+        }
+
+        // flat_index * WORDSIZE + base = element address
         emit_multiply_by(current_temporary(), WORDSIZE);
-
-        // base + index*WORDSIZE = element address
         emit_add(previous_temporary(), previous_temporary(), current_temporary());
         tfree(1);
 
-        get_expected_symbol(SYM_RBRACKET);
-
-        // element address in current_temporary()
-        dereference = 2; // 2 = array indexed (no UINT64STAR_T check)
-        base = current_temporary();
-        offset = 0;
-        ltype = get_type(entry);
+        dereference = 2; // array indexed (no UINT64STAR_T check)
+        base        = current_temporary();
+        offset      = 0;
+        ltype       = get_type(entry);
       } else {
         // a = value is invalid for array variables
         syntax_error_message("array variable requires index operator");
@@ -5655,6 +5697,10 @@ uint64_t compile_factor() {
   char* variable_or_procedure;
   uint64_t* ae_entry;
   uint64_t* var_entry;
+  uint64_t* strides_ptr_cf;
+  uint64_t ndims_cf;
+  uint64_t dim_cf;
+  uint64_t stride_cf;
 
   // assert: n = allocated_temporaries
 
@@ -5748,31 +5794,50 @@ uint64_t compile_factor() {
     get_symbol();
 
     if (symbol == SYM_LBRACKET) {
-      // array element access: identifier "[" index "]"
+      // array element access: identifier "[" index "]" ("[" index "]")*
 
       ae_entry = get_variable_entry(variable_or_procedure);
 
-      get_symbol(); // consume [
-
       if (get_class(ae_entry) == ARRAY) {
-        // load base address of array element 0
+        strides_ptr_cf = (uint64_t*) get_value(ae_entry);
+        ndims_cf       = *(strides_ptr_cf);
+
         load_address(ae_entry);
+
+        // first subscript
+        get_symbol(); // consume [
+        compile_logicalor();
+        stride_cf = *(strides_ptr_cf + 1);
+        emit_multiply_by(current_temporary(), stride_cf);
+        get_expected_symbol(SYM_RBRACKET);
+
+        // subsequent subscripts
+        dim_cf = 1;
+        while (dim_cf < ndims_cf && symbol == SYM_LBRACKET) {
+          get_symbol(); // consume [
+          compile_logicalor();
+          stride_cf = *(strides_ptr_cf + 1 + dim_cf);
+          emit_multiply_by(current_temporary(), stride_cf);
+          emit_add(previous_temporary(), previous_temporary(), current_temporary());
+          tfree(1);
+          get_expected_symbol(SYM_RBRACKET);
+          dim_cf = dim_cf + 1;
+        }
+
+        // flat_index * WORDSIZE + base = element address
+        emit_multiply_by(current_temporary(), WORDSIZE);
+        emit_add(previous_temporary(), previous_temporary(), current_temporary());
+        tfree(1);
       } else {
-        // pointer variable (uint64_t*): load value (the pointer)
+        // pointer variable (uint64_t*): single subscript
+        get_symbol(); // consume [
         load_value(ae_entry);
+        compile_logicalor();
+        emit_multiply_by(current_temporary(), WORDSIZE);
+        emit_add(previous_temporary(), previous_temporary(), current_temporary());
+        tfree(1);
+        get_expected_symbol(SYM_RBRACKET);
       }
-
-      // compile index expression
-      compile_logicalor();
-
-      // index * WORDSIZE
-      emit_multiply_by(current_temporary(), WORDSIZE);
-
-      // base + index*WORDSIZE = element address
-      emit_add(previous_temporary(), previous_temporary(), current_temporary());
-      tfree(1);
-
-      get_expected_symbol(SYM_RBRACKET);
 
       // load value at element address
       emit_load(current_temporary(), current_temporary(), 0);
@@ -6332,7 +6397,12 @@ void compile_procedure(char* procedure, uint64_t type) {
   uint64_t* entry;
   uint64_t* local_entry;
   uint64_t number_of_local_variable_bytes;
-  uint64_t array_size;
+  uint64_t* dims_arr;
+  uint64_t ndims;
+  uint64_t total;
+  uint64_t* strides_arr;
+  uint64_t stride;
+  uint64_t dim_idx;
 
   // lookahead of 1: identifier already parsed into procedure (type may be left-factored)
 
@@ -6476,25 +6546,45 @@ void compile_procedure(char* procedure, uint64_t type) {
       local_entry = compile_variable((char*) 0, compile_type(), -number_of_local_variable_bytes);
 
       if (symbol == SYM_LBRACKET) {
-        // local array declaration: uint64_t a[N]
-        get_symbol(); // consume [
+        // local (multi-dimensional) array declaration: uint64_t a[D1][D2]...
+        dims_arr = smalloc(8 * WORDSIZE);
+        ndims    = 0;
+        total    = 1;
 
-        if (symbol == SYM_INTEGER) {
-          array_size = literal;
-          get_symbol();
-        } else {
-          syntax_error_expected_symbol(SYM_INTEGER);
-          array_size = 1;
+        while (symbol == SYM_LBRACKET && ndims < 8) {
+          get_symbol(); // consume [
+
+          if (symbol == SYM_INTEGER) {
+            *(dims_arr + ndims) = literal;
+            get_symbol();
+          } else {
+            syntax_error_expected_symbol(SYM_INTEGER);
+            *(dims_arr + ndims) = 1;
+          }
+
+          total = total * *(dims_arr + ndims);
+          ndims = ndims + 1;
+
+          get_expected_symbol(SYM_RBRACKET);
         }
 
-        get_expected_symbol(SYM_RBRACKET);
+        strides_arr = smalloc((ndims + 1) * WORDSIZE);
+        *(strides_arr) = ndims;
+        dim_idx = ndims;
+        stride  = 1;
+        while (dim_idx > 0) {
+          dim_idx = dim_idx - 1;
+          *(strides_arr + 1 + dim_idx) = stride;
+          stride = stride * *(dims_arr + dim_idx);
+        }
 
-        // allocate N*WORDSIZE total; we already allocated 1 WORDSIZE above
-        number_of_local_variable_bytes = number_of_local_variable_bytes + (array_size - 1) * WORDSIZE;
+        // allocate total*WORDSIZE; we already allocated 1 WORDSIZE above
+        number_of_local_variable_bytes = number_of_local_variable_bytes + (total - 1) * WORDSIZE;
 
-        // a[0] is at the deepest (most negative) address
+        // a[0][0]... is at the deepest (most negative) address
         set_address(local_entry, -number_of_local_variable_bytes);
         set_class(local_entry, ARRAY);
+        set_value(local_entry, (uint64_t) strides_arr);
       }
 
       get_expected_symbol(SYM_SEMICOLON);
