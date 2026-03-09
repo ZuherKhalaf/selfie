@@ -4,7 +4,7 @@ Selfie is a project of the Computational Systems Group at the Department of Comp
 
 selfie.cs.uni-salzburg.at
 
-This document provides an overview of the RISC-U instruction set. RISC-U is a tiny subset of the 64-bit [RISC-V](https://en.wikipedia.org/wiki/RISC-V) instruction set. The selfie system implements a compiler that targets RISC-U as well as a RISC-U emulator that interprets RISC-U code. RISC-U consists of just 14 instructions listed below. For details on the exact encoding, decoding, and semantics of RISC-U code see the selfie implementation.
+This document provides an overview of the RISC-U instruction set. RISC-U is a tiny subset of the 64-bit [RISC-V](https://en.wikipedia.org/wiki/RISC-V) instruction set. The selfie system implements a compiler that targets RISC-U as well as a RISC-U emulator that interprets RISC-U code. RISC-U consists of just 16 instructions listed below. For details on the exact encoding, decoding, and semantics of RISC-U code see the selfie implementation.
 
 ## Machine State
 
@@ -43,6 +43,12 @@ The parameter `imm` denotes a signed integer value represented by a fixed number
 `divu rd,rs1,rs2`: `rd = rs1 / rs2; pc = pc + 4` where the values of `rs1` and `rs2` are interpreted as unsigned integers.
 
 `remu rd,rs1,rs2`: `rd = rs1 % rs2; pc = pc + 4` where the values of `rs1` and `rs2` are interpreted as unsigned integers.
+
+#### Shift
+
+`sll rd,rs1,rs2`: `rd = rs1 << rs2; pc = pc + 4` where `rs2` specifies the shift amount and the vacated bits are filled with zeros.
+
+`srl rd,rs1,rs2`: `rd = rs1 >> rs2; pc = pc + 4` where `rs2` specifies the shift amount and the vacated bits are filled with zeros (logical right shift).
 
 #### Comparison
 
