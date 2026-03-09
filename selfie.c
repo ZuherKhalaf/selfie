@@ -475,6 +475,9 @@ uint64_t SYM_CHAR     = 31; // char
 uint64_t SYM_UNSIGNED = 32; // unsigned
 uint64_t SYM_CONST    = 33; // const
 
+uint64_t SYM_LSHIFT = 34; // <<
+uint64_t SYM_RSHIFT = 35; // >>
+
 uint64_t* SYMBOLS; // strings representing symbols
 
 uint64_t MAX_IDENTIFIER_LENGTH = 64;  // maximum number of characters in an identifier
@@ -511,7 +514,7 @@ uint64_t source_fd   = 0; // file descriptor of open source file
 // ------------------------- INITIALIZATION ------------------------
 
 void init_scanner () {
-  SYMBOLS = smalloc((SYM_CONST + 1) * sizeof(uint64_t*));
+  SYMBOLS = smalloc((SYM_RSHIFT + 1) * sizeof(uint64_t*));
 
   *(SYMBOLS + SYM_INTEGER)      = (uint64_t) "integer";
   *(SYMBOLS + SYM_CHARACTER)    = (uint64_t) "character";
@@ -548,6 +551,9 @@ void init_scanner () {
   *(SYMBOLS + SYM_CHAR)     = (uint64_t) "char";
   *(SYMBOLS + SYM_UNSIGNED) = (uint64_t) "unsigned";
   *(SYMBOLS + SYM_CONST)    = (uint64_t) "const";
+
+  *(SYMBOLS + SYM_LSHIFT) = (uint64_t) "<<";
+  *(SYMBOLS + SYM_RSHIFT) = (uint64_t) ">>";
 
   character = CHAR_EOF;
   symbol    = SYM_EOF;
@@ -680,6 +686,7 @@ uint64_t is_expression();
 uint64_t is_comparison();
 uint64_t is_plus_or_minus();
 uint64_t is_mult_or_div_or_rem();
+uint64_t is_shift();
 uint64_t is_factor();
 uint64_t is_literal();
 
@@ -725,6 +732,7 @@ uint64_t  load_variable(char* variable);
 void compile_assignment(char* variable);
 
 uint64_t compile_expression(); // returns type
+uint64_t compile_shift();      // returns type
 uint64_t compile_arithmetic(); // returns type
 uint64_t compile_term();       // returns type
 uint64_t compile_factor();     // returns type
@@ -4032,6 +4040,10 @@ void get_symbol() {
           get_character();
 
           symbol = SYM_LEQ;
+        } else if (character == CHAR_LT) {
+          get_character();
+
+          symbol = SYM_LSHIFT;
         } else
           symbol = SYM_LT;
       } else if (character == CHAR_GT) {
@@ -4041,6 +4053,10 @@ void get_symbol() {
           get_character();
 
           symbol = SYM_GEQ;
+        } else if (character == CHAR_GT) {
+          get_character();
+
+          symbol = SYM_RSHIFT;
         } else
           symbol = SYM_GT;
       } else if (character == CHAR_DOT) {
@@ -4340,6 +4356,15 @@ uint64_t is_mult_or_div_or_rem() {
   else if (symbol == SYM_DIVISION)
     return 1;
   else if (symbol == SYM_REMAINDER)
+    return 1;
+  else
+    return 0;
+}
+
+uint64_t is_shift() {
+  if (symbol == SYM_LSHIFT)
+    return 1;
+  else if (symbol == SYM_RSHIFT)
     return 1;
   else
     return 0;
@@ -4971,7 +4996,7 @@ uint64_t compile_expression() {
 
   // assert: n = allocated_temporaries
 
-  ltype = compile_arithmetic();
+  ltype = compile_shift();
 
   // assert: allocated_temporaries == n + 1
 
@@ -4981,7 +5006,7 @@ uint64_t compile_expression() {
 
     get_symbol();
 
-    rtype = compile_arithmetic();
+    rtype = compile_shift();
 
     // assert: allocated_temporaries == n + 2
 
@@ -5040,6 +5065,48 @@ uint64_t compile_expression() {
   // assert: allocated_temporaries == n + 1
 
   // type of expression is grammar attribute
+  return ltype;
+}
+
+uint64_t compile_shift() {
+  uint64_t ltype;
+  uint64_t operator_symbol;
+  uint64_t rtype;
+
+  // assert: n = allocated_temporaries
+
+  ltype = compile_arithmetic();
+
+  // assert: allocated_temporaries == n + 1
+
+  // optional: <<, >> arithmetic
+  while (is_shift()) {
+    operator_symbol = symbol;
+
+    get_symbol();
+
+    rtype = compile_arithmetic();
+
+    // assert: allocated_temporaries == n + 2
+
+    if (ltype != rtype)
+      type_warning(ltype, rtype);
+
+    ltype = UINT64_T;
+
+    if (operator_symbol == SYM_LSHIFT)
+      // left shift: a << b  (placeholder: proper sll in bitwise-shift-execution)
+      emit_add(previous_temporary(), previous_temporary(), current_temporary());
+    else
+      // right shift: a >> b  (placeholder: proper srl in bitwise-shift-execution)
+      emit_add(previous_temporary(), previous_temporary(), current_temporary());
+
+    tfree(1);
+  }
+
+  // assert: allocated_temporaries == n + 1
+
+  // type of shift expression is grammar attribute
   return ltype;
 }
 
