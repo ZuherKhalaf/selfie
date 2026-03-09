@@ -492,6 +492,8 @@ uint64_t SYM_LOGICALOR    = 40; // ||
 uint64_t SYM_EXCLAMATION  = 41; // !
 uint64_t SYM_LBRACKET     = 43; // [
 uint64_t SYM_RBRACKET     = 44; // ]
+uint64_t SYM_STRUCT       = 45; // struct
+uint64_t SYM_ARROW        = 46; // ->
 
 uint64_t* SYMBOLS; // strings representing symbols
 
@@ -529,7 +531,7 @@ uint64_t source_fd   = 0; // file descriptor of open source file
 // ------------------------- INITIALIZATION ------------------------
 
 void init_scanner () {
-  SYMBOLS = smalloc((SYM_RBRACKET + 1) * sizeof(uint64_t*));
+  SYMBOLS = smalloc((SYM_ARROW + 1) * sizeof(uint64_t*));
 
   *(SYMBOLS + SYM_INTEGER)      = (uint64_t) "integer";
   *(SYMBOLS + SYM_CHARACTER)    = (uint64_t) "character";
@@ -579,6 +581,8 @@ void init_scanner () {
   *(SYMBOLS + SYM_EXCLAMATION) = (uint64_t) "!";
   *(SYMBOLS + SYM_LBRACKET)    = (uint64_t) "[";
   *(SYMBOLS + SYM_RBRACKET)    = (uint64_t) "]";
+  *(SYMBOLS + SYM_STRUCT)      = (uint64_t) "struct";
+  *(SYMBOLS + SYM_ARROW)       = (uint64_t) "->";
 
   character = CHAR_EOF;
   symbol    = SYM_EOF;
@@ -658,6 +662,8 @@ uint64_t STRING    = 3;
 uint64_t PROCEDURE = 4;
 uint64_t ARRAY     = 5;
 uint64_t MACRO     = 5;
+uint64_t STRUCT    = 6; // struct type entry
+uint64_t MEMBER    = 7; // struct member entry
 
 // types
 uint64_t UINT64_T     = 1;
@@ -1271,6 +1277,8 @@ uint64_t dc_global_variable = 0;
 uint64_t dc_string          = 0;
 uint64_t dc_string_bytes    = 0;
 uint64_t dc_big_integer     = 0;
+
+uint64_t* current_struct_entry = (uint64_t*) 0; // set by compile_type() when parsing struct type
 
 char* binary_name = (char*) 0; // file name of binary
 
@@ -3859,6 +3867,8 @@ uint64_t identifier_or_keyword() {
     return SYM_WHILE;
   else if (identifier_string_match(SYM_FOR))
     return SYM_FOR;
+  else if (identifier_string_match(SYM_STRUCT))
+    return SYM_STRUCT;
   else if (identifier_string_match(SYM_SIZEOF))
     return SYM_SIZEOF;
   else if (identifier_string_match(SYM_INT))
@@ -4094,7 +4104,12 @@ void get_symbol() {
       } else if (character == CHAR_DASH) {
         get_character();
 
-        symbol = SYM_MINUS;
+        if (character == CHAR_GT) {
+          get_character();
+
+          symbol = SYM_ARROW;
+        } else
+          symbol = SYM_MINUS;
       } else if (character == CHAR_ASTERISK) {
         get_character();
 
@@ -4295,6 +4310,21 @@ uint64_t* search_global_symbol_table(char* string, uint64_t class) {
   return search_symbol_table((uint64_t*) *(global_symbol_table + hash((uint64_t*) string)), string, class);
 }
 
+uint64_t* search_struct_members(uint64_t* struct_entry, char* member_name) {
+  uint64_t* m;
+
+  m = (uint64_t*) get_value(struct_entry);
+
+  while (m != (uint64_t*) 0) {
+    if (string_compare(get_string(m), member_name))
+      return m;
+
+    m = get_next_entry(m);
+  }
+
+  return (uint64_t*) 0;
+}
+
 uint64_t* search_local_symbol_table(char* string) {
   uint64_t* entry;
 
@@ -4436,7 +4466,7 @@ void tfree(uint64_t number_of_temporaries) {
 // -----------------------------------------------------------------
 
 uint64_t is_type() {
-  return symbol == SYM_UINT64;
+  return symbol == SYM_UINT64 || symbol == SYM_STRUCT;
 }
 
 uint64_t is_value() {
@@ -4695,6 +4725,12 @@ void compile_cstar() {
   uint64_t stride;
   uint64_t dim_idx;
   uint64_t i;
+  char* struct_name_c;
+  uint64_t* struct_entry_c;
+  uint64_t* member_entry_c;
+  uint64_t member_count_c;
+  uint64_t member_type_c;
+  uint64_t* member_struct_c;
 
   while (symbol != SYM_EOF) {
     // synchronizing on strong symbols in case of syntax errors
@@ -4707,7 +4743,96 @@ void compile_cstar() {
         get_symbol();
     }
 
-    if (is_type()) {
+    if (symbol == SYM_STRUCT) {
+      // struct definition OR global struct pointer variable
+      get_symbol(); // consume 'struct'
+
+      if (symbol != SYM_IDENTIFIER) {
+        syntax_error_expected_symbol(SYM_IDENTIFIER);
+      } else {
+        struct_name_c = identifier;
+        get_symbol(); // consume struct name
+
+        if (symbol == SYM_LBRACE) {
+          // struct definition: struct name { member_decls } ;
+          struct_entry_c = search_global_symbol_table(struct_name_c, STRUCT);
+          if (struct_entry_c == (uint64_t*) 0)
+            struct_entry_c = create_symbol_table_entry(GLOBAL_TABLE, struct_name_c,
+              line_number, STRUCT, UINT64STAR_T, 0, 0);
+
+          get_symbol(); // consume '{'
+
+          member_count_c = 0;
+          while (symbol != SYM_RBRACE && symbol != SYM_EOF) {
+            if (symbol == SYM_STRUCT) {
+              get_symbol(); // consume 'struct'
+              if (symbol == SYM_IDENTIFIER) {
+                member_struct_c = search_global_symbol_table(identifier, STRUCT);
+                get_symbol(); // consume struct name
+              } else {
+                syntax_error_expected_symbol(SYM_IDENTIFIER);
+                member_struct_c = (uint64_t*) 0;
+              }
+              get_expected_symbol(SYM_ASTERISK);
+              member_type_c = UINT64STAR_T;
+            } else if (is_type()) {
+              member_struct_c = (uint64_t*) 0;
+              member_type_c = compile_type();
+            } else {
+              syntax_error_unexpected_symbol();
+              get_symbol();
+              member_struct_c = (uint64_t*) 0;
+              member_type_c = UINT64_T;
+            }
+
+            if (symbol == SYM_IDENTIFIER) {
+              member_entry_c = allocate_symbol_table_entry();
+              set_string(member_entry_c, identifier);
+              set_line_number(member_entry_c, line_number);
+              set_class(member_entry_c, MEMBER);
+              set_type(member_entry_c, member_type_c);
+              set_value(member_entry_c, (uint64_t) member_struct_c);
+              set_address(member_entry_c, member_count_c);
+              set_scope(member_entry_c, 0);
+              set_next_entry(member_entry_c, (uint64_t*) get_value(struct_entry_c));
+              set_value(struct_entry_c, (uint64_t) member_entry_c);
+
+              member_count_c = member_count_c + 1;
+              get_symbol(); // consume member name
+            } else
+              syntax_error_expected_symbol(SYM_IDENTIFIER);
+
+            get_expected_symbol(SYM_SEMICOLON);
+          }
+
+          get_expected_symbol(SYM_RBRACE);
+          get_expected_symbol(SYM_SEMICOLON);
+
+        } else if (symbol == SYM_ASTERISK) {
+          // global struct pointer variable: struct name* varname;
+          get_symbol(); // consume '*'
+          struct_entry_c = search_global_symbol_table(struct_name_c, STRUCT);
+
+          if (symbol == SYM_IDENTIFIER) {
+            variable_or_procedure = identifier;
+            get_symbol(); // consume variable name
+
+            if (symbol == SYM_LPARENTHESIS) {
+              compile_procedure(variable_or_procedure, UINT64STAR_T);
+            } else {
+              data_size = data_size + WORDSIZE;
+              entry = create_symbol_table_entry(GLOBAL_TABLE, variable_or_procedure,
+                line_number, VARIABLE, UINT64STAR_T, (uint64_t) struct_entry_c, -data_size);
+              emit_data_word(0, -data_size, line_number);
+              dc_global_variable = dc_global_variable + 1;
+              get_expected_symbol(SYM_SEMICOLON);
+            }
+          } else
+            syntax_error_expected_symbol(SYM_IDENTIFIER);
+        } else
+          syntax_error_unexpected_symbol();
+      }
+    } else if (is_type()) {
       type = compile_type();
 
       if (symbol == SYM_IDENTIFIER) {
@@ -4857,6 +4982,25 @@ uint64_t compile_type() {
   uint64_t type;
 
   type = UINT64_T;
+
+  current_struct_entry = (uint64_t*) 0;
+
+  if (symbol == SYM_STRUCT) {
+    get_symbol(); // consume 'struct'
+
+    if (symbol == SYM_IDENTIFIER) {
+      current_struct_entry = search_global_symbol_table(identifier, STRUCT);
+      get_symbol(); // consume struct name
+    } else
+      syntax_error_expected_symbol(SYM_IDENTIFIER);
+
+    while (symbol == SYM_ASTERISK) {
+      type = UINT64STAR_T;
+      get_symbol();
+    }
+
+    return type;
+  }
 
   if (is_type()) {
     get_symbol();
@@ -5120,6 +5264,14 @@ void compile_assignment(char* variable) {
   uint64_t ndims_ca;
   uint64_t dim_ca;
   uint64_t stride_ca;
+  uint64_t* struct_ca;
+  uint64_t* member_ca;
+  uint64_t member_offset_ca;
+  char* member_name_ca;
+
+  offset           = 0;
+  member_ca        = (uint64_t*) 0;
+  member_offset_ca = 0;
 
   // assert: identifier has already been parsed if variable != (char*) 0
 
@@ -5197,6 +5349,31 @@ void compile_assignment(char* variable) {
         base = current_temporary();
         offset = 0;
         ltype = UINT64_T;
+      } else if (symbol == SYM_ARROW) {
+        // struct member assignment: ptr->member...->field = val
+        load_value(entry); // load pointer value into a temporary
+        struct_ca = (uint64_t*) get_value(entry);
+
+        while (symbol == SYM_ARROW) {
+          get_symbol(); // consume '->'
+          if (symbol == SYM_IDENTIFIER) {
+            member_name_ca = identifier;
+            get_symbol(); // consume member name
+            member_ca = search_struct_members(struct_ca, member_name_ca);
+            member_offset_ca = get_address(member_ca) * WORDSIZE;
+            struct_ca = (uint64_t*) get_value(member_ca);
+            if (symbol == SYM_ARROW)
+              // intermediate: follow pointer to next struct
+              emit_load(current_temporary(), current_temporary(), member_offset_ca);
+          } else
+            syntax_error_expected_symbol(SYM_IDENTIFIER);
+        }
+
+        // current_temporary() holds pointer to struct containing final member
+        dereference = 2;
+        base = current_temporary();
+        offset = member_offset_ca;
+        ltype = get_type(member_ca);
       } else {
         base = get_scope(entry);
 
@@ -5701,6 +5878,10 @@ uint64_t compile_factor() {
   uint64_t ndims_cf;
   uint64_t dim_cf;
   uint64_t stride_cf;
+  uint64_t* struct_cf;
+  uint64_t* member_cf;
+  uint64_t member_offset_cf;
+  char* member_name_cf;
 
   // assert: n = allocated_temporaries
 
@@ -5852,6 +6033,24 @@ uint64_t compile_factor() {
         // array name without index: load base address as pointer (for call-by-reference)
         load_address(var_entry);
         type = UINT64STAR_T;
+      } else if (symbol == SYM_ARROW) {
+        // struct member chain access: ptr->member1->member2...
+        type = load_variable(variable_or_procedure);
+        struct_cf = (uint64_t*) get_value(var_entry);
+
+        while (symbol == SYM_ARROW) {
+          get_symbol(); // consume '->'
+          if (symbol == SYM_IDENTIFIER) {
+            member_name_cf = identifier;
+            get_symbol(); // consume member name
+            member_cf = search_struct_members(struct_cf, member_name_cf);
+            member_offset_cf = get_address(member_cf) * WORDSIZE;
+            emit_load(current_temporary(), current_temporary(), member_offset_cf);
+            struct_cf = (uint64_t*) get_value(member_cf);
+            type = get_type(member_cf);
+          } else
+            syntax_error_expected_symbol(SYM_IDENTIFIER);
+        }
       } else
         type = load_variable(variable_or_procedure);
     } else {
@@ -6431,6 +6630,9 @@ void compile_procedure(char* procedure, uint64_t type) {
           set_type(entry, UINT64STAR_T);
         }
 
+        if (current_struct_entry != (uint64_t*) 0)
+          set_value(entry, (uint64_t) current_struct_entry);
+
         number_of_formal_parameters = 1;
 
         // 2 * WORDSIZE offset to skip frame pointer and link
@@ -6456,6 +6658,9 @@ void compile_procedure(char* procedure, uint64_t type) {
               get_expected_symbol(SYM_RBRACKET);
               set_type(entry, UINT64STAR_T);
             }
+
+            if (current_struct_entry != (uint64_t*) 0)
+              set_value(entry, (uint64_t) current_struct_entry);
 
             number_of_formal_parameters = number_of_formal_parameters + 1;
 
@@ -6586,6 +6791,10 @@ void compile_procedure(char* procedure, uint64_t type) {
         set_class(local_entry, ARRAY);
         set_value(local_entry, (uint64_t) strides_arr);
       }
+
+      if (current_struct_entry != (uint64_t*) 0)
+        if (get_class(local_entry) != ARRAY)
+          set_value(local_entry, (uint64_t) current_struct_entry);
 
       get_expected_symbol(SYM_SEMICOLON);
     }
