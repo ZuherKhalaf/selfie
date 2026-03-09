@@ -435,6 +435,8 @@ char CHAR_DOT          = '.';
 char CHAR_AMPERSAND    = '&';
 char CHAR_PIPE         = '|';
 char CHAR_TILDE        = '~';
+char CHAR_LBRACKET     = '[';
+char CHAR_RBRACKET     = ']';
 
 uint64_t SYM_EOF = -1; // end of file
 
@@ -488,6 +490,8 @@ uint64_t SYM_TILDE        = 38; // ~
 uint64_t SYM_LOGICALAND   = 39; // &&
 uint64_t SYM_LOGICALOR    = 40; // ||
 uint64_t SYM_EXCLAMATION  = 41; // !
+uint64_t SYM_LBRACKET     = 43; // [
+uint64_t SYM_RBRACKET     = 44; // ]
 
 uint64_t* SYMBOLS; // strings representing symbols
 
@@ -525,7 +529,7 @@ uint64_t source_fd   = 0; // file descriptor of open source file
 // ------------------------- INITIALIZATION ------------------------
 
 void init_scanner () {
-  SYMBOLS = smalloc((SYM_FOR + 1) * sizeof(uint64_t*));
+  SYMBOLS = smalloc((SYM_RBRACKET + 1) * sizeof(uint64_t*));
 
   *(SYMBOLS + SYM_INTEGER)      = (uint64_t) "integer";
   *(SYMBOLS + SYM_CHARACTER)    = (uint64_t) "character";
@@ -573,6 +577,8 @@ void init_scanner () {
   *(SYMBOLS + SYM_LOGICALAND)  = (uint64_t) "&&";
   *(SYMBOLS + SYM_LOGICALOR)   = (uint64_t) "||";
   *(SYMBOLS + SYM_EXCLAMATION) = (uint64_t) "!";
+  *(SYMBOLS + SYM_LBRACKET)    = (uint64_t) "[";
+  *(SYMBOLS + SYM_RBRACKET)    = (uint64_t) "]";
 
   character = CHAR_EOF;
   symbol    = SYM_EOF;
@@ -650,6 +656,7 @@ uint64_t VARIABLE  = 1;
 uint64_t BIGINT    = 2;
 uint64_t STRING    = 3;
 uint64_t PROCEDURE = 4;
+uint64_t ARRAY     = 5;
 uint64_t MACRO     = 5;
 
 // types
@@ -4176,6 +4183,14 @@ void get_symbol() {
         get_character();
 
         symbol = SYM_TILDE;
+      } else if (character == CHAR_LBRACKET) {
+        get_character();
+
+        symbol = SYM_LBRACKET;
+      } else if (character == CHAR_RBRACKET) {
+        get_character();
+
+        symbol = SYM_RBRACKET;
       } else {
         print_line_number("syntax error", line_number);
         printf("found unknown character ");
@@ -4281,7 +4296,14 @@ uint64_t* search_global_symbol_table(char* string, uint64_t class) {
 }
 
 uint64_t* search_local_symbol_table(char* string) {
-  return search_symbol_table(local_symbol_table, string, VARIABLE);
+  uint64_t* entry;
+
+  entry = search_symbol_table(local_symbol_table, string, VARIABLE);
+
+  if (entry == (uint64_t*) 0)
+    entry = search_symbol_table(local_symbol_table, string, ARRAY);
+
+  return entry;
 }
 
 uint64_t* get_scoped_symbol_table_entry(char* string) {
@@ -4292,6 +4314,9 @@ uint64_t* get_scoped_symbol_table_entry(char* string) {
 
   if (entry == (uint64_t*) 0)
     entry = search_global_symbol_table(string, VARIABLE);
+
+  if (entry == (uint64_t*) 0)
+    entry = search_global_symbol_table(string, ARRAY);
 
   return entry;
 }
@@ -4663,6 +4688,8 @@ void compile_cstar() {
   uint64_t type;
   char* variable_or_procedure;
   uint64_t* entry;
+  uint64_t array_size;
+  uint64_t i;
 
   while (symbol != SYM_EOF) {
     // synchronizing on strong symbols in case of syntax errors
@@ -4684,17 +4711,48 @@ void compile_cstar() {
         get_symbol();
 
         if (symbol != SYM_LPARENTHESIS) {
-          // type identifier [ initialize ] ";"
-          // global variable declaration or definition
-          entry = compile_variable(variable_or_procedure, type, 0);
+          if (symbol == SYM_LBRACKET) {
+            // type identifier "[" size "]" ";"
+            // global array declaration
+            get_symbol(); // consume [
 
-          set_value(entry, compile_initialize(type));
+            if (symbol == SYM_INTEGER) {
+              array_size = literal;
+              get_symbol();
+            } else {
+              syntax_error_expected_symbol(SYM_INTEGER);
+              array_size = 1;
+            }
 
-          emit_data_word(get_value(entry), get_address(entry), get_line_number(entry));
+            get_expected_symbol(SYM_RBRACKET);
 
-          dc_global_variable = dc_global_variable + 1;
+            data_size = data_size + array_size * WORDSIZE;
 
-          get_expected_symbol(SYM_SEMICOLON);
+            entry = create_symbol_table_entry(GLOBAL_TABLE, variable_or_procedure,
+              line_number, ARRAY, type, array_size, -data_size);
+
+            i = 0;
+            while (i < array_size) {
+              emit_data_word(0, -data_size + i * WORDSIZE, line_number);
+              i = i + 1;
+            }
+
+            dc_global_variable = dc_global_variable + 1;
+
+            get_expected_symbol(SYM_SEMICOLON);
+          } else {
+            // type identifier [ initialize ] ";"
+            // global variable declaration or definition
+            entry = compile_variable(variable_or_procedure, type, 0);
+
+            set_value(entry, compile_initialize(type));
+
+            emit_data_word(get_value(entry), get_address(entry), get_line_number(entry));
+
+            dc_global_variable = dc_global_variable + 1;
+
+            get_expected_symbol(SYM_SEMICOLON);
+          }
         } else
           // type identifier "(" ...
           // procedure declaration or definition
@@ -5043,16 +5101,84 @@ void compile_assignment(char* variable) {
 
     entry = get_variable_entry(variable);
 
-    base = get_scope(entry);
+    if (get_class(entry) == ARRAY) {
+      if (symbol == SYM_LBRACKET) {
+        // array element assignment: a[i] = v
+        get_symbol(); // consume [
 
-    // load variable upper address, if needed
-    offset = load_upper_address(entry);
+        // load base address of array element 0
+        load_address(entry);
 
-    if (offset != get_address(entry))
-      // assert: allocated_temporaries == 1
-      base = current_temporary();
+        // compile index expression
+        compile_logicalor();
 
-    ltype = get_type(entry);
+        // index * WORDSIZE
+        emit_multiply_by(current_temporary(), WORDSIZE);
+
+        // base + index*WORDSIZE = element address
+        emit_add(previous_temporary(), previous_temporary(), current_temporary());
+        tfree(1);
+
+        get_expected_symbol(SYM_RBRACKET);
+
+        // element address in current_temporary()
+        dereference = 2; // 2 = array indexed (no UINT64STAR_T check)
+        base = current_temporary();
+        offset = 0;
+        ltype = get_type(entry);
+      } else {
+        // a = value is invalid for array variables
+        syntax_error_message("array variable requires index operator");
+        exit(EXITCODE_PARSERERROR);
+      }
+    } else if (get_class(entry) == VARIABLE) {
+      if (symbol == SYM_LBRACKET) {
+        // pointer indexing: b[i] = v where b is uint64_t*
+        get_symbol(); // consume [
+
+        // load value of b (the pointer)
+        load_value(entry);
+
+        // compile index expression
+        compile_logicalor();
+
+        // index * WORDSIZE
+        emit_multiply_by(current_temporary(), WORDSIZE);
+
+        // b + index*WORDSIZE = element address
+        emit_add(previous_temporary(), previous_temporary(), current_temporary());
+        tfree(1);
+
+        get_expected_symbol(SYM_RBRACKET);
+
+        dereference = 2; // 2 = pointer indexed (no UINT64STAR_T check)
+        base = current_temporary();
+        offset = 0;
+        ltype = UINT64_T;
+      } else {
+        base = get_scope(entry);
+
+        // load variable upper address, if needed
+        offset = load_upper_address(entry);
+
+        if (offset != get_address(entry))
+          // assert: allocated_temporaries == 1
+          base = current_temporary();
+
+        ltype = get_type(entry);
+      }
+    } else {
+      base = get_scope(entry);
+
+      // load variable upper address, if needed
+      offset = load_upper_address(entry);
+
+      if (offset != get_address(entry))
+        // assert: allocated_temporaries == 1
+        base = current_temporary();
+
+      ltype = get_type(entry);
+    }
   } else {
     // "*" identifier | "*" "(" expression ")"
     get_required_symbol(SYM_ASTERISK);
@@ -5097,7 +5223,7 @@ void compile_assignment(char* variable) {
   if (symbol == SYM_ASSIGN) {
     get_symbol();
 
-    if (dereference) {
+    if (dereference == 1) {
       if (ltype != UINT64STAR_T)
         type_warning(UINT64STAR_T, ltype);
       else
@@ -5527,6 +5653,8 @@ uint64_t compile_factor() {
   uint64_t lognot;
   uint64_t dereference;
   char* variable_or_procedure;
+  uint64_t* ae_entry;
+  uint64_t* var_entry;
 
   // assert: n = allocated_temporaries
 
@@ -5619,10 +5747,49 @@ uint64_t compile_factor() {
 
     get_symbol();
 
-    if (symbol != SYM_LPARENTHESIS)
+    if (symbol == SYM_LBRACKET) {
+      // array element access: identifier "[" index "]"
+
+      ae_entry = get_variable_entry(variable_or_procedure);
+
+      get_symbol(); // consume [
+
+      if (get_class(ae_entry) == ARRAY) {
+        // load base address of array element 0
+        load_address(ae_entry);
+      } else {
+        // pointer variable (uint64_t*): load value (the pointer)
+        load_value(ae_entry);
+      }
+
+      // compile index expression
+      compile_logicalor();
+
+      // index * WORDSIZE
+      emit_multiply_by(current_temporary(), WORDSIZE);
+
+      // base + index*WORDSIZE = element address
+      emit_add(previous_temporary(), previous_temporary(), current_temporary());
+      tfree(1);
+
+      get_expected_symbol(SYM_RBRACKET);
+
+      // load value at element address
+      emit_load(current_temporary(), current_temporary(), 0);
+
+      type = UINT64_T;
+    } else if (symbol != SYM_LPARENTHESIS) {
       // variable access: identifier ...
-      type = load_variable(variable_or_procedure);
-    else {
+
+      var_entry = get_variable_entry(variable_or_procedure);
+
+      if (get_class(var_entry) == ARRAY) {
+        // array name without index: load base address as pointer (for call-by-reference)
+        load_address(var_entry);
+        type = UINT64STAR_T;
+      } else
+        type = load_variable(variable_or_procedure);
+    } else {
       // procedure call: identifier "(" ... ")"
       type = compile_call(variable_or_procedure);
 
@@ -6163,7 +6330,9 @@ void compile_procedure(char* procedure, uint64_t type) {
   uint64_t is_variadic;
   uint64_t number_of_formal_parameters;
   uint64_t* entry;
+  uint64_t* local_entry;
   uint64_t number_of_local_variable_bytes;
+  uint64_t array_size;
 
   // lookahead of 1: identifier already parsed into procedure (type may be left-factored)
 
@@ -6184,6 +6353,14 @@ void compile_procedure(char* procedure, uint64_t type) {
       if (is_type()) {
         entry = compile_variable((char*) 0, compile_type(), 0);
 
+        if (symbol == SYM_LBRACKET) {
+          // array formal parameter: uint64_t b[N] treated as uint64_t* b
+          get_symbol();
+          get_expected_symbol(SYM_INTEGER);
+          get_expected_symbol(SYM_RBRACKET);
+          set_type(entry, UINT64STAR_T);
+        }
+
         number_of_formal_parameters = 1;
 
         // 2 * WORDSIZE offset to skip frame pointer and link
@@ -6201,6 +6378,14 @@ void compile_procedure(char* procedure, uint64_t type) {
             is_variadic = 1;
           } else if (is_type()) {
             entry = compile_variable((char*) 0, compile_type(), 0);
+
+            if (symbol == SYM_LBRACKET) {
+              // array formal parameter: uint64_t b[N] treated as uint64_t* b
+              get_symbol();
+              get_expected_symbol(SYM_INTEGER);
+              get_expected_symbol(SYM_RBRACKET);
+              set_type(entry, UINT64STAR_T);
+            }
 
             number_of_formal_parameters = number_of_formal_parameters + 1;
 
@@ -6288,7 +6473,29 @@ void compile_procedure(char* procedure, uint64_t type) {
       number_of_local_variable_bytes = number_of_local_variable_bytes + WORDSIZE;
 
       // offset of local variables relative to frame pointer is negative
-      compile_variable((char*) 0, compile_type(), -number_of_local_variable_bytes);
+      local_entry = compile_variable((char*) 0, compile_type(), -number_of_local_variable_bytes);
+
+      if (symbol == SYM_LBRACKET) {
+        // local array declaration: uint64_t a[N]
+        get_symbol(); // consume [
+
+        if (symbol == SYM_INTEGER) {
+          array_size = literal;
+          get_symbol();
+        } else {
+          syntax_error_expected_symbol(SYM_INTEGER);
+          array_size = 1;
+        }
+
+        get_expected_symbol(SYM_RBRACKET);
+
+        // allocate N*WORDSIZE total; we already allocated 1 WORDSIZE above
+        number_of_local_variable_bytes = number_of_local_variable_bytes + (array_size - 1) * WORDSIZE;
+
+        // a[0] is at the deepest (most negative) address
+        set_address(local_entry, -number_of_local_variable_bytes);
+        set_class(local_entry, ARRAY);
+      }
 
       get_expected_symbol(SYM_SEMICOLON);
     }
