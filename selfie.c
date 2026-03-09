@@ -147,6 +147,8 @@ char* store_character(char* s, uint64_t i, char c);
 
 uint64_t is_letter(char c);
 uint64_t is_digit(char c);
+uint64_t is_hex_digit(char c);
+uint64_t is_hex_prefix(char c);
 
 char*    string_alloc(uint64_t l);
 uint64_t string_length(char* s);
@@ -2838,6 +2840,32 @@ uint64_t is_digit(char c) {
     return 0;
 }
 
+uint64_t is_hex_digit(char c) {
+  if (is_digit(c))
+    return 1;
+  else if (c >= 'a')
+    if (c <= 'f')
+      return 1;
+    else
+      return 0;
+  else if (c >= 'A')
+    if (c <= 'F')
+      return 1;
+    else
+      return 0;
+  else
+    return 0;
+}
+
+uint64_t is_hex_prefix(char c) {
+  if (c == 'x')
+    return 1;
+  else if (c == 'X')
+    return 1;
+  else
+    return 0;
+}
+
 char* string_alloc(uint64_t l) {
   // allocates zeroed memory for a string of l characters
   // plus a null terminator aligned to word size
@@ -3795,10 +3823,48 @@ void get_symbol() {
         symbol = identifier_or_keyword();
       } else if (is_digit(character)) {
         if (character == '0') {
-          // 0 is 0, not 00, 000, etc.
           get_character();
 
-          literal = 0;
+          if (is_hex_prefix(character)) {
+            // hexadecimal literal: 0x or 0X followed by hex digits
+            get_character();
+
+            literal = 0;
+
+            i = 0;
+
+            while (is_hex_digit(character)) {
+              if (i >= 16) {
+                syntax_error_message("unsigned integer out of target bound");
+
+                exit(EXITCODE_SCANNERERROR);
+              }
+
+              if (is_digit(character))
+                literal = literal * 16 + (character - '0');
+              else if (character >= 'a')
+                literal = literal * 16 + (character - 'a' + 10);
+              else
+                literal = literal * 16 + (character - 'A' + 10);
+
+              i = i + 1;
+
+              get_character();
+            }
+
+            if (i == 0) {
+              syntax_error_message("missing hexadecimal digits after 0x");
+
+              exit(EXITCODE_SCANNERERROR);
+            }
+
+            integer = string_alloc(MAX_INTEGER_LENGTH);
+
+            itoa(literal, integer, 10, 0, 0);
+          } else {
+            // 0 is 0, not 00, 000, etc.
+            literal = 0;
+          }
         } else {
           // accommodate integer and null for termination
           integer = string_alloc(MAX_INTEGER_LENGTH);
