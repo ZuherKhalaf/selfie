@@ -16,3 +16,8 @@ beator
 beator-32
 rotor
 rotor-32
+
+# Formatter configs (local only)
+.clang-format
+validate_grammar_format.py
+validate_selfie_format.py
