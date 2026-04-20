@@ -1,0 +1,5 @@
+CompileFlags:
+  Add: 
+    - "-Duint64_t=unsigned long"
+    - "-Wall"
+    - "-Wextra"

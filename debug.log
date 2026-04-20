@@ -1,0 +1,121 @@
+./selfie: ================================================================================
+./selfie: this is the selfie system from selfie.cs.uni-salzburg.at with
+./selfie: 64-bit unsigned integers and 64-bit pointers hosted on Linux
+./selfie: ================================================================================
+./selfie: selfie compiling examples/own/simple.c to 64-bit RISC-U with 64-bit starc
+./selfie: --------------------------------------------------------------------------------
+./selfie: 46 characters read in 6 lines and 0 comments
+./selfie: with 30(65.21%) characters in 18 actual symbols
+./selfie: 0 global variables, 1 procedures, 0 string literals
+./selfie: 1 assignments, 0 while, 0 if, 0 calls, 1 return
+./selfie: --------------------------------------------------------------------------------
+./selfie: 5 symbol table lookups in 1 iterations on average
+./selfie: vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+./selfie: 408 bytes generated with 100 instructions and 8 bytes of data
+./selfie: --------------------------------------------------------------------------------
+./selfie: profile: instruction: total(ratio%)
+./selfie: init:    lui: 1(1.00%), addi: 47(47.00%)
+./selfie: memory:  ld: 18(18.00%), sd: 8(8.00%)
+./selfie: compute: add: 2(2.00%), sub: 2(2.00%), mul: 0(0.00%)
+./selfie: compute: divu: 0(0.00%), remu: 2(2.00%)
+./selfie: compare: sltu: 0(0.00%)
+./selfie: control: beq: 4(4.00%), jal: 2(2.00%), jalr: 6(6.00%)
+./selfie: system:  ecall: 8(8.00%)
+./selfie: --------------------------------------------------------------------------------
+./selfie: profile: data: total(bytes)
+./selfie: global variables:       1(8)
+./selfie: unique string literals: 0(0)
+./selfie: unique big integers:    0(0)
+./selfie: ********************************************************************************
+./selfie: 64-bit mipster executing 64-bit RISC-U binary examples/own/simple.c with 1MB physical memory, and debugger
+./selfie: >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+examples/own/simple.c: pc==0x10000(~1): lui t0,0x11: |- t0==0x0 -> t0==0x11000
+examples/own/simple.c: pc==0x10004(~1): addi t0,t0,8: t0==69632(0x11000) |- t0==69632(0x11000) -> t0==69640(0x11008)
+examples/own/simple.c: pc==0x10008(~1): addi gp,t0,0: t0==69640(0x11008) |- gp==0x0 -> gp==0x11008
+examples/own/simple.c: pc==0x1000C(~1): addi a0,zero,0: zero==0(0x0) |- a0==0(0x0) -> a0==0(0x0)
+examples/own/simple.c: pc==0x10010(~1): addi a7,zero,214: zero==0(0x0) |- a7==0(0x0) -> a7==214(0xD6)
+examples/own/simple.c: pc==0x10014(~1): ecall(brk): a0==0x0 |- a0==0x0 -> a0==0x12000
+examples/own/simple.c: pc==0x10018(~1): addi a0,a0,7: a0==73728(0x12000) |- a0==73728(0x12000) -> a0==73735(0x12007)
+examples/own/simple.c: pc==0x1001C(~1): addi t0,zero,8: zero==0(0x0) |- t0==69640(0x11008) -> t0==8(0x8)
+examples/own/simple.c: pc==0x10020(~1): remu t0,a0,t0: a0==73735(0x12007),t0==8(0x8) |- t0==8(0x8) -> t0==7(0x7)
+examples/own/simple.c: pc==0x10024(~1): sub a0,a0,t0: a0==73735(0x12007),t0==7(0x7) |- a0==73735(0x12007) -> a0==73728(0x12000)
+examples/own/simple.c: pc==0x10028(~1): addi a7,zero,214: zero==0(0x0) |- a7==214(0xD6) -> a7==214(0xD6)
+examples/own/simple.c: pc==0x1002C(~1): ecall(brk): a0==0x12000 |- a0==0x12000 -> a0==0x12000
+examples/own/simple.c: pc==0x10030(~1): sd a0,-8(gp): gp==0x11008,a0==73728(0x12000) |- mem[0x11000]==0 -> mem[0x11000]==a0==73728(0x12000)
+examples/own/simple.c: pc==0x10034(~1): ld t0,0(sp): sp==0xFFFFFFC8,mem[0xFFFFFFC8]==1 |- t0==7(0x7) -> t0==1(0x1)==mem[0xFFFFFFC8]
+examples/own/simple.c: pc==0x10038(~1): addi sp,sp,-8: sp==0xFFFFFFC8 |- sp==0xFFFFFFC8 -> sp==0xFFFFFFC0
+examples/own/simple.c: pc==0x1003C(~1): sd t0,0(sp): sp==0xFFFFFFC0,t0==1(0x1) |- mem[0xFFFFFFC0]==0 -> mem[0xFFFFFFC0]==t0==1(0x1)
+examples/own/simple.c: pc==0x10040(~1): addi t0,sp,16: sp==0xFFFFFFC0 |- t0==1(0x1) -> t0==4294967248(0xFFFFFFD0)
+examples/own/simple.c: pc==0x10044(~1): sd t0,8(sp): sp==0xFFFFFFC0,t0==4294967248(0xFFFFFFD0) |- mem[0xFFFFFFC8]==1 -> mem[0xFFFFFFC8]==t0==4294967248(0xFFFFFFD0)
+examples/own/simple.c: pc==0x10048(~1): jal ra,61: |- ra==0x0,pc==0x10048 -> pc==0x1013C,ra==0x1004C
+examples/own/simple.c: pc==0x1013C(~3): addi sp,sp,-8: sp==0xFFFFFFC0 |- sp==0xFFFFFFC0 -> sp==0xFFFFFFB8
+examples/own/simple.c: pc==0x10140(~3): sd ra,0(sp): sp==0xFFFFFFB8,ra==0x1004C |- mem[0xFFFFFFB8]==0x0 -> mem[0xFFFFFFB8]==ra==0x1004C
+examples/own/simple.c: pc==0x10144(~3): addi sp,sp,-8: sp==0xFFFFFFB8 |- sp==0xFFFFFFB8 -> sp==0xFFFFFFB0
+examples/own/simple.c: pc==0x10148(~3): sd s0,0(sp): sp==0xFFFFFFB0,s0==0x0 |- mem[0xFFFFFFB0]==0x0 -> mem[0xFFFFFFB0]==s0==0x0
+examples/own/simple.c: pc==0x1014C(~3): addi s0,sp,0: sp==0xFFFFFFB0 |- s0==0x0 -> s0==0xFFFFFFB0
+examples/own/simple.c: pc==0x10150(~3): addi sp,sp,-8: sp==0xFFFFFFB0 |- sp==0xFFFFFFB0 -> sp==0xFFFFFFA8
+examples/own/simple.c: pc==0x10154(~3): addi t0,zero,7: zero==0(0x0) |- t0==4294967248(0xFFFFFFD0) -> t0==7(0x7)
+examples/own/simple.c: pc==0x10158(~3): addi t1,zero,3: zero==0(0x0) |- t1==0(0x0) -> t1==3(0x3)
+examples/own/simple.c: pc==0x1015C(~3): add t0,t0,t1: t0==7(0x7),t1==3(0x3) |- t0==7(0x7) -> t0==10(0xA)
+examples/own/simple.c: pc==0x10160(~3): sd t0,-8(s0): s0==0xFFFFFFB0,t0==10(0xA) |- mem[0xFFFFFFA8]==0 -> mem[0xFFFFFFA8]==t0==10(0xA)
+examples/own/simple.c: pc==0x10164(~4): ld t0,-8(s0): s0==0xFFFFFFB0,mem[0xFFFFFFA8]==10 |- t0==10(0xA) -> t0==10(0xA)==mem[0xFFFFFFA8]
+examples/own/simple.c: pc==0x10168(~4): addi a0,t0,0: t0==10(0xA) |- a0==73728(0x12000) -> a0==10(0xA)
+examples/own/simple.c: pc==0x1016C(~4): jal zero,2: |- pc==0x1016C -> pc==0x10174
+examples/own/simple.c: pc==0x10174(~5): addi sp,s0,0: s0==0xFFFFFFB0 |- sp==0xFFFFFFA8 -> sp==0xFFFFFFB0
+examples/own/simple.c: pc==0x10178(~5): ld s0,0(sp): sp==0xFFFFFFB0,mem[0xFFFFFFB0]==0x0 |- s0==0xFFFFFFB0 -> s0==0x0==mem[0xFFFFFFB0]
+examples/own/simple.c: pc==0x1017C(~5): addi sp,sp,8: sp==0xFFFFFFB0 |- sp==0xFFFFFFB0 -> sp==0xFFFFFFB8
+examples/own/simple.c: pc==0x10180(~5): ld ra,0(sp): sp==0xFFFFFFB8,mem[0xFFFFFFB8]==0x1004C |- ra==0x1004C -> ra==0x1004C==mem[0xFFFFFFB8]
+examples/own/simple.c: pc==0x10184(~5): addi sp,sp,8: sp==0xFFFFFFB8 |- sp==0xFFFFFFB8 -> sp==0xFFFFFFC0
+examples/own/simple.c: pc==0x10188(~5): jalr zero,0(ra): ra==0x1004C |- pc==0x10188 -> pc==0x1004C
+examples/own/simple.c: pc==0x1004C(~1): addi sp,sp,-8: sp==0xFFFFFFC0 |- sp==0xFFFFFFC0 -> sp==0xFFFFFFB8
+examples/own/simple.c: pc==0x10050(~1): sd a0,0(sp): sp==0xFFFFFFB8,a0==10(0xA) |- mem[0xFFFFFFB8]==65612 -> mem[0xFFFFFFB8]==a0==10(0xA)
+examples/own/simple.c: pc==0x10054(~1): ld a0,0(sp): sp==0xFFFFFFB8,mem[0xFFFFFFB8]==10 |- a0==10(0xA) -> a0==10(0xA)==mem[0xFFFFFFB8]
+examples/own/simple.c: pc==0x10058(~1): addi sp,sp,8: sp==0xFFFFFFB8 |- sp==0xFFFFFFB8 -> sp==0xFFFFFFC0
+examples/own/simple.c: pc==0x1005C(~1): addi a7,zero,93: zero==0(0x0) |- a7==214(0xD6) -> a7==93(0x5D)
+examples/own/simple.c: pc==0x10060(~1): ecall(exit): a0==0xA |- ->
+
+./selfie: <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+./selfie: 64-bit mipster terminating 64-bit RISC-U binary examples/own/simple.c with exit code 10
+./selfie: --------------------------------------------------------------------------------
+./selfie: summary: 44 executed instructions in total [13.63% nops]
+./selfie:          0.02MB mapped memory [2.34% of 1MB physical memory]
+./selfie: ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+./selfie: context: > examples/own/simple.c
+./selfie:          44 executed instructions [100.00% share, factor 1.00]
+./selfie:          0.06KB peak stack size
+./selfie:          0.00MB allocated in 0 mallocs (0.00MB or 0.00% actually accessed)
+./selfie:          3 exceptions handled by ./selfie, one every 14 executed instructions
+./selfie:          3 syscalls, 0 page faults, 0 timer interrupts
+./selfie: --------------------------------------------------------------------------------
+./selfie: profile: instruction: total(ratio%)[nops%]
+./selfie: init:    lui: 1(2.27%)[0.00%], addi: 22(50.00%)[9.09%]
+./selfie: memory:  ld: 5(11.36%)[60.00%], sd: 7(15.90%)[14.28%]
+./selfie: compute: add: 1(2.27%)[0.00%], sub: 1(2.27%)[0.00%], mul: 0(0.00%)[0.00%]
+./selfie: compute: divu: 0(0.00%)[0.00%], remu: 1(2.27%)[0.00%]
+./selfie: compare: sltu: 0(0.00%)[0.00%]
+./selfie: control: beq: 0(0.00%)[0.00%], jal: 2(4.54%)[0.00%], jalr: 1(2.27%)[0.00%]
+./selfie: system:  ecall: 3(6.81%)
+./selfie: --------------------------------------------------------------------------------
+./selfie: profile: total,max(ratio%)@address(line#),2ndmax,3rdmax
+./selfie: calls:   1,1(100.00%)@0x13C(~3),0(0.00%),0(0.00%)
+./selfie: loops:   0,0(0.00%),0(0.00%),0(0.00%)
+./selfie: loads:   5,1(20.00%)@0x34(~1),1(20.00%)@0x54(~1),1(20.00%)@0x164(~4)
+./selfie: stores:  7,1(14.28%)@0x30(~1),1(14.28%)@0x3C(~1),1(14.28%)@0x44(~1)
+./selfie: --------------------------------------------------------------------------------
+./selfie: CPU+memory:    reads+writes,reads,writes[reads/writes]
+./selfie: gp register:   2,1,1[1.00]
+./selfie: data segment:  3,0,3[0.00]
+./selfie: ra register:   4,2,2[1.00]
+./selfie: sp register:   29,19,10[1.90]
+./selfie: s0 register:   7,4,3[1.33]
+./selfie: stack total:   40,25,15[1.66]
+./selfie: stack segment: 33,15,18[0.83]
+./selfie: a0 register:   15,8,7[1.14]
+./selfie: a6 register:   3,0,3[0.00]
+./selfie: a7 register:   6,3,3[1.00]
+./selfie: args total:    24,11,13[0.84]
+./selfie: t0 register:   18,9,9[1.00]
+./selfie: t1 register:   2,1,1[1.00]
+./selfie: temps total:   20,10,10[1.00]
+./selfie: ################################################################################

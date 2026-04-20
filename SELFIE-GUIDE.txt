@@ -1,0 +1,294 @@
+================================================================================
+                    SELFIE - VOLLSTÄNDIGE BEFEHLSÜBERSICHT
+================================================================================
+
+SYNOPSIS:
+./selfie { -c {source} | -o binary | (-s|-S) assembly | -l binary } 
+         [ (-m|-d|-r|-y) 0-4096 ... ]
+
+================================================================================
+                         INPUT-OPTIONEN (Was laden?)
+================================================================================
+
+-c <file.c>              Kompiliere C*-Quellcode
+                         Beispiel: ./selfie -c test.c
+
+-l <file.m>              Lade RISC-U Binary
+                         Beispiel: ./selfie -l test.m -m 1
+
+================================================================================
+                        OUTPUT-OPTIONEN (Was speichern?)
+================================================================================
+
+-o <file.m>              Speichere RISC-U Binary
+                         Beispiel: ./selfie -c test.c -o test.m
+
+-S <file.S>              Speichere Assembly (detailliert)
+                         Beispiel: ./selfie -c test.c -S test.S
+                         Zeigt: Adressen, Hex-Code, Zeilennummern
+
+-s <file.s>              Speichere Assembly (kompakt)
+                         Beispiel: ./selfie -c test.c -s test.s
+                         Zeigt: Nur Assembly-Code
+
+================================================================================
+                    AUSFÜHRUNGS-MODI (Wie ausführen?)
+================================================================================
+
+-m <MB>                  Mipster - Standard RISC-U Emulator
+                         Beispiel: ./selfie -c test.c -m 1
+                         MB: 0-4096 (Speicher in Megabyte)
+                         Ausgabe: Exit-Code + Statistiken
+
+-d <MB>                  Debugger - Mit Instruktions-Trace
+                         Beispiel: ./selfie -c test.c -d 1
+                         Zeigt: Jede Instruktion + Register + Memory
+                         Perfekt zum Lernen/Debuggen!
+
+-r <MB>                  RISC-U - Minimaler Emulator
+                         Beispiel: ./selfie -c test.c -r 1
+                         Wie -m, aber minimalistisch
+
+-y <MB>                  Hypster - Hypervisor/Virtualisierung
+                         Beispiel: ./selfie -c test.c -y 1
+                         Fortgeschritten: Selfie in Selfie
+
+RAM: 0-4096 MB
+     - Kleine Programme: 1-4 MB
+     - Große Programme: 16-128 MB
+     - Maximum: 4096 MB (4 GB)
+
+================================================================================
+                        HÄUFIGE KOMBINATIONEN
+================================================================================
+
+1. NUR KOMPILIEREN (Syntax-Check)
+   ./selfie -c test.c
+   → Zeigt Statistiken, erstellt keine Datei
+
+2. KOMPILIEREN + AUSFÜHREN (Schnelltest)
+   ./selfie -c test.c -m 1
+   → Kompiliert und führt sofort aus
+
+3. KOMPILIEREN + DEBUGGEN (Lernen)
+   ./selfie -c test.c -d 1
+   → Zeigt jede einzelne Instruktion
+
+4. KOMPILIEREN + BINARY SPEICHERN
+   ./selfie -c test.c -o test.m
+   → Erstellt wiederverwendbare Binary
+
+5. KOMPILIEREN + ASSEMBLY SPEICHERN
+   ./selfie -c test.c -S test.S
+   → Erstellt Assembly-Datei zum Studieren
+
+6. BINARY AUSFÜHREN
+   ./selfie -l test.m -m 1
+   → Führt gespeicherte Binary aus
+
+7. BINARY DEBUGGEN
+   ./selfie -l test.m -d 1
+   → Debuggt gespeicherte Binary
+
+8. ALLES AUF EINMAL
+   ./selfie -c test.c -S test.S -o test.m -m 1
+   → Kompiliert, speichert Assembly, Binary UND führt aus
+
+9. ASSEMBLY ANSCHAUEN + AUSFÜHREN
+   ./selfie -c test.c -S test.S -d 1
+   → Assembly speichern + mit Debugger ausführen
+
+10. MEHRERE DATEIEN
+    ./selfie -c prog1.c -m 1 -c prog2.c -m 1
+    → Kompiliert und führt mehrere Programme aus
+
+================================================================================
+                         BEISPIEL-WORKFLOWS
+================================================================================
+
+WORKFLOW 1: Entwicklung & Test
+------------------------------
+./selfie -c myprog.c                    # Syntax checken
+./selfie -c myprog.c -m 1               # Testen
+./selfie -c myprog.c -o myprog.m        # Speichern
+
+WORKFLOW 2: Debugging
+---------------------
+./selfie -c buggy.c -d 1 | less         # Mit Debugger
+./selfie -c buggy.c -d 1 2>&1 | grep "~5"  # Nur Zeile 5
+
+WORKFLOW 3: Code-Analyse
+------------------------
+./selfie -c code.c                      # Statistiken sehen
+./selfie -c code.c -S code.S            # Assembly studieren
+cat code.S                              # Assembly anschauen
+
+WORKFLOW 4: Batch-Processing
+----------------------------
+for f in *.c; do
+  ./selfie -c "$f" -o "${f%.c}.m"
+done
+
+WORKFLOW 5: Performance-Vergleich
+----------------------------------
+./selfie -c v1.c | grep "instructions"
+./selfie -c v2.c | grep "instructions"
+
+================================================================================
+                           SPEZIAL-TRICKS
+================================================================================
+
+EXIT-CODE SEHEN:
+  ./selfie -c test.c -m 1 && echo "Exit: $?"
+
+NUR FEHLER ANZEIGEN:
+  ./selfie -c test.c 2>&1 | grep -i error
+
+NUR STATISTIKEN:
+  ./selfie -c test.c 2>&1 | grep -A 20 "summary:"
+
+DEBUGGER NUR MAIN():
+  ./selfie -c test.c -d 1 2>&1 | grep "~[3-9]\)"
+
+MEMORY-ZUGRIFFE:
+  ./selfie -c test.c -d 1 2>&1 | grep "mem\["
+
+AUSFÜHRUNGSZEIT MESSEN:
+  time ./selfie -c test.c -m 1
+
+INSTRUKTIONEN ZÄHLEN:
+  ./selfie -c test.c -m 1 2>&1 | grep "executed instructions"
+
+OUTPUT IN DATEI:
+  ./selfie -c test.c -d 1 > debug.log 2>&1
+
+INTERAKTIV DURCHSUCHEN:
+  ./selfie -c test.c -d 1 2>&1 | less
+  (Dann: /suchtext <Enter>, n für nächste, q für quit)
+
+================================================================================
+                         FLAG-KOMBINATIONEN
+================================================================================
+
+MÖGLICH:
+✅ -c + -o              Kompilieren + Binary speichern
+✅ -c + -S              Kompilieren + Assembly speichern
+✅ -c + -s              Kompilieren + Assembly (kurz) speichern
+✅ -c + -m              Kompilieren + ausführen (mipster)
+✅ -c + -d              Kompilieren + debuggen
+✅ -c + -r              Kompilieren + ausführen (riscu)
+✅ -c + -y              Kompilieren + ausführen (hypster)
+✅ -c + -S + -o         Kompilieren + Assembly + Binary
+✅ -c + -o + -m         Kompilieren + Binary + ausführen
+✅ -c + -S + -m         Kompilieren + Assembly + ausführen
+✅ -c + -S + -o + -m    Alles kombiniert
+✅ -l + -m              Binary laden + ausführen
+✅ -l + -d              Binary laden + debuggen
+
+NICHT MÖGLICH:
+❌ -c ohne Dateiname
+❌ -l ohne Dateiname
+❌ -m/-d/-r/-y ohne RAM-Größe
+❌ -S/-s ohne Dateiname
+❌ -o ohne Dateiname
+
+================================================================================
+                          TYPISCHE FEHLER
+================================================================================
+
+FEHLER: ./selfie -c test.c -m
+LÖSUNG: RAM-Größe fehlt → ./selfie -c test.c -m 1
+
+FEHLER: ./selfie -l test.c -m 1
+LÖSUNG: .c statt .m → ./selfie -l test.m -m 1
+
+FEHLER: ./selfie -c test.c -o
+LÖSUNG: Dateiname fehlt → ./selfie -c test.c -o test.m
+
+FEHLER: Programm sagt "out of memory"
+LÖSUNG: Mehr RAM geben → ./selfie -c test.c -m 16
+
+FEHLER: Syntax error in C*-Code
+LÖSUNG: C* != C! Keine Initializer: int x = 5; ❌
+        Erst deklarieren, dann zuweisen: int x; x = 5; ✅
+
+================================================================================
+                         RAM-GRÖSSEN GUIDE
+================================================================================
+
+1 MB      Klein, einfache Programme (default)
+2-4 MB    Normale Programme
+8-16 MB   Programme mit Arrays, etwas malloc
+32-64 MB  Größere Datenstrukturen
+128 MB    Viele Daten, tiefe Rekursion
+256+ MB   Große Programme
+4096 MB   Maximum (4 GB)
+
+================================================================================
+                        C* EINSCHRÄNKUNGEN
+================================================================================
+
+NICHT UNTERSTÜTZT:
+❌ int x = 5;               (Initializer)
+❌ for-Loops
+❌ switch/case
+❌ float/double
+❌ structs/unions
+❌ typedef
+❌ Preprocessor (#define, #include)
+❌ Arrays in Funktions-Parametern
+
+UNTERSTÜTZT:
+✅ int, uint64_t
+✅ int*, uint64_t*
+✅ while-Loops
+✅ if-else
+✅ Funktionen
+✅ Lokale/Globale Variablen
+✅ malloc/free
+✅ Pointer-Arithmetik
+✅ Kommentare: // und /* */
+
+================================================================================
+                         DATEI-ENDUNGEN
+================================================================================
+
+.c        C*-Quellcode (Input für -c)
+.m        RISC-U Binary (Output von -o, Input für -l)
+.S        Assembly detailliert (Output von -S)
+.s        Assembly kompakt (Output von -s)
+
+================================================================================
+                        SCHNELL-REFERENZ
+================================================================================
+
+Kompilieren:        ./selfie -c file.c
+Ausführen:          ./selfie -c file.c -m 1
+Debuggen:           ./selfie -c file.c -d 1
+Binary speichern:   ./selfie -c file.c -o file.m
+Assembly speichern: ./selfie -c file.c -S file.S
+Binary laden:       ./selfie -l file.m -m 1
+
+================================================================================
+                            HILFE & INFO
+================================================================================
+
+Selfie Website:     selfie.cs.uni-salzburg.at
+RISC-U Doku:        cat riscu.md
+Grammar:            cat grammar.md
+Beispiele:          ls examples/
+Diese Hilfe:        cat SELFIE-GUIDE.txt
+
+================================================================================
+                              TIPPS
+================================================================================
+
+1. Starte immer mit ./selfie -c file.c (Syntax-Check)
+2. Nutze -d 1 zum Lernen (siehst jeden Schritt)
+3. Nutze -m 1 zum Testen (schnell)
+4. Speichere Assembly mit -S zum Studieren
+5. Pipe zu grep/less für bessere Lesbarkeit
+6. Vergleiche verschiedene Versionen mit -c (Statistiken)
+
+================================================================================
+EOF

@@ -994,7 +994,7 @@ void     decode_u_format();
 uint64_t OP_LOAD   = 3;   // 0000011, I format (LD,LW)
 uint64_t OP_IMM    = 19;  // 0010011, I format (ADDI, NOP)
 uint64_t OP_STORE  = 35;  // 0100011, S format (SD,SW)
-uint64_t OP_OP     = 51;  // 0110011, R format (ADD, SUB, MUL, DIVU, REMU, SLTU)
+uint64_t OP_OP     = 51;  // 0110011, R format (ADD, SUB, MUL, DIVU, REMU, SLTU,SLL, SRL)
 uint64_t OP_LUI    = 55;  // 0110111, U format (LUI)
 uint64_t OP_BRANCH = 99;  // 1100011, B format (BEQ)
 uint64_t OP_JALR   = 103; // 1100111, I format (JALR)
@@ -9175,10 +9175,12 @@ void do_sll() {
    else
      nopc_sll = nopc_sll + 1;
   } else
-   nopc_sll = nopc_sll + 1;
+    nopc_sll = nopc_sll + 1;
 
   write_register(rd);
+
   pc = pc + INSTRUCTIONSIZE;
+
   ic_sll = ic_sll + 1;
 }
 
