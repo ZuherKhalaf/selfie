@@ -10,7 +10,7 @@ C\* is a tiny subset of the programming language C. C\* features global variable
 
 C\* Keywords: `uint64_t`, `void`, `sizeof`, `if`, `else`, `while`, `return`
 
-C\* Symbols: `integer`, `character`, `string`, `identifier`, `,`, `;`, `(`, `)`, `{`, `}`, `+`, `-`, `*`, `/`, `%`, `=`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `<<`, `>>`, `...`
+C\* Symbols: `integer`, `character`, `string`, `identifier`, `,`, `;`, `(`, `)`, `{`, `}`, `+`, `-`, `*`, `/`, `%`, `=`, `==`, `!=`, `<`, `>`, `<=`, `>=`, `<<`, `>>`, `&`, `|`, `~`, `...`
 
 with:
 
@@ -51,7 +51,13 @@ statement  = assignment ";" | if | while | call ";" | return ";" .
 
 assignment = ( [ "*" ] identifier | "*" "(" expression ")" ) "=" expression .
 
-expression = shift [ ( "==" | "!=" | "<" | ">" | "<=" | ">=" ) arithmetic ] .
+expression = bitwiseor [ ( "==" | "!=" | "<" | ">" | "<=" | ">=" ) bitwiseor ] .
+
+bitwiseor  = bitwiseand { "|" bitwiseand } .
+
+bitwiseand = shift { "&" shift } .
+
+factor     = [ cast ] [ "-" ] [ "~" ] [ "*" ] ( ... ) .
 
 shift      = arithmetic { ( "<<" | ">>" ) arithmetic } .
 
