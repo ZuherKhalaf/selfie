@@ -473,14 +473,16 @@ uint64_t SYM_ELLIPSIS     = 31; // ...
 
 // symbols for bootstrapping
 
-uint64_t SYM_INT      = 32; // int
-uint64_t SYM_CHAR     = 33; // char
-uint64_t SYM_UNSIGNED = 34; // unsigned
-uint64_t SYM_CONST    = 35; // const
-
-uint64_t SYM_BITWISEAND = 36; // &
-uint64_t SYM_BITWISEOR  = 37; // |
-uint64_t SYM_TILDE      = 38; // ~
+uint64_t SYM_INT         = 32; // int
+uint64_t SYM_CHAR        = 33; // char
+uint64_t SYM_UNSIGNED    = 34; // unsigned
+uint64_t SYM_CONST       = 35; // const
+uint64_t SYM_BITWISEAND  = 36; // &
+uint64_t SYM_BITWISEOR   = 37; // |
+uint64_t SYM_TILDE       = 38; // ~
+uint64_t SYM_LOGICALAND  = 39; // &&
+uint64_t SYM_LOGICALOR   = 40; // ||
+uint64_t SYM_EXCLAMATION = 41; // !
 
 uint64_t* SYMBOLS; // strings representing symbols
 
@@ -518,7 +520,7 @@ uint64_t source_fd   = 0; // file descriptor of open source file
 // ------------------------- INITIALIZATION ------------------------
 
 void init_scanner () {
-  SYMBOLS = smalloc((SYM_TILDE + 1) * sizeof(uint64_t*));
+  SYMBOLS = smalloc((SYM_EXCLAMATION + 1) * sizeof(uint64_t*));
 
   *(SYMBOLS + SYM_INTEGER)      = (uint64_t) "integer";
   *(SYMBOLS + SYM_CHARACTER)    = (uint64_t) "character";
@@ -553,14 +555,18 @@ void init_scanner () {
   *(SYMBOLS + SYM_RSHIFT)       = (uint64_t) ">>";
   *(SYMBOLS + SYM_ELLIPSIS)     = (uint64_t) "...";
 
-  *(SYMBOLS + SYM_INT)      = (uint64_t) "int";
-  *(SYMBOLS + SYM_CHAR)     = (uint64_t) "char";
-  *(SYMBOLS + SYM_UNSIGNED) = (uint64_t) "unsigned";
-  *(SYMBOLS + SYM_CONST)    = (uint64_t) "const";
+  *(SYMBOLS + SYM_INT)          = (uint64_t) "int";
+  *(SYMBOLS + SYM_CHAR)         = (uint64_t) "char";
+  *(SYMBOLS + SYM_UNSIGNED)     = (uint64_t) "unsigned";
+  *(SYMBOLS + SYM_CONST)        = (uint64_t) "const";
 
-  *(SYMBOLS + SYM_BITWISEAND) = (uint64_t) "&";
-  *(SYMBOLS + SYM_BITWISEOR)  = (uint64_t) "|";
-  *(SYMBOLS + SYM_TILDE)      = (uint64_t) "~";
+  *(SYMBOLS + SYM_BITWISEAND)   = (uint64_t) "&";
+  *(SYMBOLS + SYM_BITWISEOR)    = (uint64_t) "|";
+  *(SYMBOLS + SYM_TILDE)        = (uint64_t) "~";
+
+  *(SYMBOLS + SYM_LOGICALAND)   = (uint64_t) "&&";
+  *(SYMBOLS + SYM_LOGICALOR)    = (uint64_t) "||";
+  *(SYMBOLS + SYM_EXCLAMATION)  = (uint64_t) "!";
 
   character = CHAR_EOF;
   symbol    = SYM_EOF;
@@ -691,6 +697,8 @@ uint64_t is_type();
 uint64_t is_value();
 uint64_t is_expression();
 uint64_t is_comparison();
+uint64_t is_logicaland();
+uint64_t is_logicalor();
 uint64_t is_plus_or_minus();
 uint64_t is_mult_or_div_or_rem();
 uint64_t is_factor();
@@ -737,6 +745,8 @@ uint64_t  load_variable(char* variable);
 
 void compile_assignment(char* variable);
 
+uint64_t compile_logicalor(); // return type
+uint64_t compile_logicaland(); // return type
 uint64_t compile_expression();   // returns type
 uint64_t compile_bitwiseor();   // returns type
 uint64_t compile_bitwiseand();  // returns type
@@ -4026,12 +4036,11 @@ void get_symbol() {
       } else if (character == CHAR_EXCLAMATION) {
         get_character();
 
-        if (character == CHAR_EQUAL)
+        if (character == CHAR_EQUAL){
           get_character();
-        else
-          syntax_error_expected_character(CHAR_EQUAL);
-
-        symbol = SYM_NOTEQ;
+          symbol = SYM_NOTEQ;
+        } else
+          symbol = SYM_EXCLAMATION;
       } else if (character == CHAR_LT) {
         get_character();
 
@@ -4076,7 +4085,7 @@ void get_symbol() {
 
         if (character == CHAR_AMPERSAND) {
           get_character();
-          symbol = SYM_BITWISEAND;
+          symbol = SYM_LOGICALAND;
         } else
           symbol = SYM_BITWISEAND;
       } else if (character == CHAR_PIPE) {
@@ -4084,7 +4093,7 @@ void get_symbol() {
 
         if (character == CHAR_PIPE) {
           get_character();
-          symbol = SYM_BITWISEOR;
+          symbol = SYM_LOGICALOR;
         } else
           symbol = SYM_BITWISEOR;
       } else if (character == CHAR_TILDE) {
@@ -4358,6 +4367,20 @@ uint64_t is_comparison() {
     return 0;
 }
 
+uint64_t is_logicaland() {
+  if (symbol == SYM_LOGICALAND)
+    return 1;
+  else
+    return 0;
+}
+
+uint64_t is_logicalor() {
+  if (symbol == SYM_LOGICALOR)
+    return 1;
+  else
+    return 0;
+}
+
 uint64_t is_plus_or_minus() {
   if (symbol == SYM_PLUS)
     return 1;
@@ -4388,6 +4411,8 @@ uint64_t is_factor() {
   else if (symbol == SYM_SIZEOF)
     return 1;
   else if (symbol == SYM_TILDE)
+    return 1;
+  else if (symbol == SYM_EXCLAMATION)
     return 1;
   else if (is_literal())
     return 1;
@@ -4964,7 +4989,7 @@ void compile_assignment(char* variable) {
       get_symbol();
 
       // load expression value (as address)
-      ltype = compile_expression();
+      ltype = compile_logicalor();
 
       get_expected_symbol(SYM_RPARENTHESIS);
     } else {
@@ -4998,7 +5023,7 @@ void compile_assignment(char* variable) {
         ltype = UINT64_T;
     }
 
-    rtype = compile_expression();
+    rtype = compile_logicalor();
 
     if (ltype != rtype)
       type_warning(ltype, rtype);
@@ -5022,10 +5047,11 @@ void compile_assignment(char* variable) {
   // assert: allocated_temporaries == 0
 }
 
-uint64_t compile_expression() {
+uint64_t compile_logicaland() {
   uint64_t ltype;
-  uint64_t operator_symbol;
   uint64_t rtype;
+  uint64_t branch_false;
+  uint64_t jump_end;
 
   // assert: n = allocated_temporaries
 
@@ -5033,13 +5059,125 @@ uint64_t compile_expression() {
 
   // assert: allocated_temporaries == n + 1
 
-  //optional: ==, !=, <, >, <=, >= simple_expression
+  // optional: { "&&" bitwiseor } with short-circuit evaluation
+  while (is_logicaland()) {
+    if (ltype != UINT64_T) {
+      type_warning(UINT64_T, ltype);
+      ltype = UINT64_T;
+    }
+
+    get_symbol();
+
+    // if left operand is zero (false), short-circuit: skip right operand
+    branch_false = code_size;
+    emit_beq(current_temporary(), REG_ZR, 0);
+
+    rtype = compile_bitwiseor();
+
+    // assert: allocated_temporaries == n + 2
+
+    if (rtype != UINT64_T)
+      type_warning(UINT64_T, rtype);
+
+    // result = (right operand != 0)
+    emit_sltu(previous_temporary(), REG_ZR, current_temporary());
+
+    tfree(1);
+
+    // jump past the false path
+    jump_end = code_size;
+    emit_jal(REG_ZR, 0);
+
+    // false path: left operand was zero, result is zero
+    fixup_BFormat(branch_false);
+    emit_addi(current_temporary(), REG_ZR, 0);
+
+    // end:
+    fixup_JFormat(jump_end, code_size);
+
+    ltype = UINT64_T;
+  }
+
+  // assert: allocated_temporaries == n + 1
+
+  return ltype;
+}
+
+uint64_t compile_logicalor() {
+  uint64_t ltype;
+  uint64_t rtype;
+  uint64_t branch_check_right;
+  uint64_t jump_end;
+
+  // assert: n = allocated_temporaries
+
+  ltype = compile_logicaland();
+
+  // assert: allocated_temporaries == n + 1
+
+  // optional: { "||" logicaland } with short-circuit evaluation
+  while (is_logicalor()) {
+    if (ltype != UINT64_T) {
+      type_warning(UINT64_T, ltype);
+      ltype = UINT64_T;
+    }
+
+    get_symbol();
+
+    // if left operand is nonzero (true), short-circuit: result is 1, skip right
+    branch_check_right = code_size;
+    emit_beq(current_temporary(), REG_ZR, 0);
+
+    // left operand is nonzero: result = 1
+    emit_addi(current_temporary(), REG_ZR, 1);
+
+    jump_end = code_size;
+    emit_jal(REG_ZR, 0);
+
+    // left operand was zero: evaluate right operand
+    fixup_BFormat(branch_check_right);
+
+    rtype = compile_logicaland();
+
+    // assert: allocated_temporaries == n + 2
+
+    if (rtype != UINT64_T)
+      type_warning(UINT64_T, rtype);
+
+    // result = (right operand != 0)
+    emit_sltu(previous_temporary(), REG_ZR, current_temporary());
+
+    tfree(1);
+
+    // end:
+    fixup_JFormat(jump_end, code_size);
+
+    ltype = UINT64_T;
+  }
+
+  // assert: allocated_temporaries == n + 1
+
+  return ltype;
+}
+
+uint64_t compile_expression() {
+  uint64_t ltype;
+  uint64_t operator_symbol;
+  uint64_t rtype;
+
+  // assert: n = allocated_temporaries
+
+  ltype = compile_shift();
+
+  // assert: allocated_temporaries == n + 1
+
+  //optional: ==, !=, <, >, <=, >= shift
   if (is_comparison()) {
     operator_symbol = symbol;
 
     get_symbol();
 
-    rtype = compile_bitwiseor();
+    rtype = compile_shift();
 
     // assert: allocated_temporaries == n + 2
 
@@ -5129,12 +5267,12 @@ uint64_t compile_bitwiseand() {
   uint64_t ltype;
   uint64_t rtype;
 
-  ltype = compile_shift();
+  ltype = compile_expression();
 
   while (is_bitwiseand()) {
     get_symbol();
 
-    rtype = compile_shift();
+    rtype = compile_expression();
 
     if (ltype != rtype)
       type_warning(ltype, rtype);
@@ -5295,6 +5433,7 @@ uint64_t compile_factor() {
   uint64_t type;
   uint64_t negative;
   uint64_t bitnot;
+  uint64_t lognot;
   uint64_t dereference;
   char* variable_or_procedure;
 
@@ -5320,7 +5459,7 @@ uint64_t compile_factor() {
       cast = compile_cast(UNDECLARED_T);
     else {
       // not a cast but: "(" expression ")"
-      type = compile_expression();
+      type = compile_logicalor();
 
       get_expected_symbol(SYM_RPARENTHESIS);
 
@@ -5346,6 +5485,12 @@ uint64_t compile_factor() {
     get_symbol();
   } else
     bitnot = 0;
+  // optional: "!"
+  if (symbol == SYM_EXCLAMATION) {
+    lognot = 1;
+    get_symbol();
+  } else
+    lognot = 0;
   // optional: "*"
   if (symbol == SYM_ASTERISK) {
     dereference = 1;
@@ -5402,7 +5547,7 @@ uint64_t compile_factor() {
     // "(" expression ")"
     get_symbol();
 
-    type = compile_expression();
+    type = compile_logicalor();
 
     get_expected_symbol(SYM_RPARENTHESIS);
   } else {
@@ -5439,6 +5584,16 @@ uint64_t compile_factor() {
     }
     // ~x = xori x, -1 (XOR with all-ones)
     emit_xori(current_temporary(), current_temporary(), -1);
+  }
+  if (lognot) {
+    if (type != UINT64_T) {
+     type_warning(UINT64_T, type);
+     type = UINT64_T;
+    }
+    // !x = 1 if x == 0 else 0
+    // sltu sets 1 iff 0 < x, then xor with 1 inverts to logical not
+    emit_sltu(current_temporary(), REG_ZR, current_temporary());
+    emit_xori(current_temporary(), current_temporary(), 1);
   }
 
   // assert: allocated_temporaries == n + 1
@@ -5587,7 +5742,7 @@ void compile_if() {
       // "if" "(" expression ")"
       get_symbol();
 
-      compile_expression();
+      compile_logicalor();
 
       // if the "if" condition is false we skip the true case
       // by branching to "else" (if provided)
@@ -5675,7 +5830,7 @@ void compile_while() {
     if (symbol == SYM_LPARENTHESIS) {
       get_symbol();
 
-      compile_expression();
+      compile_logicalor();
 
       // if the "while" condition is false
       // we skip the "while" body by branching to the end
@@ -6095,7 +6250,7 @@ uint64_t compile_call(char* procedure) {
 
   if (is_expression()) {
     // try parsing first actual parameter
-    compile_expression();
+    compile_logicalor();
 
     // TODO: check if types of actual and formal parameters match
 
@@ -6116,7 +6271,7 @@ uint64_t compile_call(char* procedure) {
       // try parsing next actual parameter
       get_symbol();
 
-      compile_expression();
+      compile_logicalor();
 
       // push next actual parameter onto stack in reverse (!) order
       emit_store(REG_SP, number_of_actual_parameters * WORDSIZE, current_temporary());
@@ -6183,7 +6338,7 @@ void compile_return() {
 
   // optional: expression
   if (symbol != SYM_SEMICOLON) {
-    type = compile_expression();
+    type = compile_logicalor();
 
     if (type != return_type)
       type_warning(return_type, type);
