@@ -5888,6 +5888,7 @@ void compile_while() {
 
   number_of_while = number_of_while + 1;
 }
+
 void compile_for() {
   char* variable_or_procedure;
   uint64_t jump_to_body;
