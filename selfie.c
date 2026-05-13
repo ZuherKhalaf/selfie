@@ -419,6 +419,8 @@ char CHAR_LPARENTHESIS = '(';
 char CHAR_RPARENTHESIS = ')';
 char CHAR_LBRACE       = '{';
 char CHAR_RBRACE       = '}';
+char CHAR_LBRACKET     = '[';
+char CHAR_RBRACKET     = ']';
 char CHAR_PLUS         = '+';
 char CHAR_DASH         = '-';
 char CHAR_ASTERISK     = '*';
@@ -484,6 +486,8 @@ uint64_t SYM_LOGICALAND  = 39; // &&
 uint64_t SYM_LOGICALOR   = 40; // ||
 uint64_t SYM_EXCLAMATION = 41; // !
 uint64_t SYM_FOR         = 42; // for
+uint64_t SYM_LBRACKET    = 43; // [
+uint64_t SYM_RBRACKET    = 44; // ]
 
 uint64_t* SYMBOLS; // strings representing symbols
 
@@ -521,7 +525,7 @@ uint64_t source_fd   = 0; // file descriptor of open source file
 // ------------------------- INITIALIZATION ------------------------
 
 void init_scanner () {
-  SYMBOLS = smalloc((SYM_FOR + 1) * sizeof(uint64_t*));
+  SYMBOLS = smalloc((SYM_RBRACKET + 1) * sizeof(uint64_t*));
 
   *(SYMBOLS + SYM_INTEGER)      = (uint64_t) "integer";
   *(SYMBOLS + SYM_CHARACTER)    = (uint64_t) "character";
@@ -569,6 +573,8 @@ void init_scanner () {
   *(SYMBOLS + SYM_LOGICALOR)    = (uint64_t) "||";
   *(SYMBOLS + SYM_EXCLAMATION)  = (uint64_t) "!";
   *(SYMBOLS + SYM_FOR)          = (uint64_t) "for";
+  *(SYMBOLS + SYM_LBRACKET)     = (uint64_t) "[";
+  *(SYMBOLS + SYM_RBRACKET)     = (uint64_t) "]";
 
   character = CHAR_EOF;
   symbol    = SYM_EOF;
@@ -4015,6 +4021,14 @@ void get_symbol() {
         get_character();
 
         symbol = SYM_RBRACE;
+      } else if (character == CHAR_LBRACKET) {
+        get_character();
+
+        symbol = SYM_LBRACKET;
+      } else if (character == CHAR_RBRACKET) {
+        get_character();
+
+        symbol = SYM_RBRACKET;
       } else if (character == CHAR_PLUS) {
         get_character();
 
@@ -4968,21 +4982,55 @@ void compile_assignment(char* variable) {
   // assert: allocated_temporaries == 0
 
   if (variable != (char*) 0) {
-    // variable is identifier
-    dereference = 0;
+    if (symbol == SYM_LBRACKET) {
+      // array assignment: identifier "[" expression "]"
+      dereference = 1;
 
-    entry = get_variable_entry(variable);
+      // load base pointer value
+      ltype = load_variable(variable);
 
-    base = get_scope(entry);
+      while (symbol == SYM_LBRACKET) {
+        if (ltype != UINT64STAR_T)
+          type_warning(UINT64STAR_T, ltype);
 
-    // load variable upper address, if needed
-    offset = load_upper_address(entry);
+        get_symbol();
 
-    if (offset != get_address(entry))
-      // assert: allocated_temporaries == 1
-      base = current_temporary();
+        rtype = compile_logicalor();
 
-    ltype = get_type(entry);
+        if (rtype != UINT64_T)
+          type_warning(UINT64_T, rtype);
+
+        // base + index * sizeof(uint64_t)
+        emit_multiply_by(current_temporary(), SIZEOFUINT);
+        emit_add(previous_temporary(), previous_temporary(), current_temporary());
+
+        tfree(1);
+
+        get_expected_symbol(SYM_RBRACKET);
+      }
+
+      // store through computed element address
+      base   = current_temporary();
+      offset = 0;
+
+      ltype = UINT64STAR_T;
+    } else {
+      // variable is identifier
+      dereference = 0;
+
+      entry = get_variable_entry(variable);
+
+      base = get_scope(entry);
+
+      // load variable upper address, if needed
+      offset = load_upper_address(entry);
+
+      if (offset != get_address(entry))
+        // assert: allocated_temporaries == 1
+        base = current_temporary();
+
+      ltype = get_type(entry);
+    }
   } else {
     // "*" identifier | "*" "(" expression ")"
     get_required_symbol(SYM_ASTERISK);
@@ -5442,6 +5490,7 @@ uint64_t compile_term() {
 uint64_t compile_factor() {
   uint64_t cast;
   uint64_t type;
+  uint64_t index_type;
   uint64_t negative;
   uint64_t bitnot;
   uint64_t lognot;
@@ -5566,6 +5615,31 @@ uint64_t compile_factor() {
 
     // we must allocate an additional temporary
     load_integer(0);
+
+    type = UINT64_T;
+  }
+
+  while (symbol == SYM_LBRACKET) {
+    if (type != UINT64STAR_T)
+      type_warning(UINT64STAR_T, type);
+
+    get_symbol();
+
+    index_type = compile_logicalor();
+
+    if (index_type != UINT64_T)
+      type_warning(UINT64_T, index_type);
+
+    // compute element address: base + index * sizeof(uint64_t)
+    emit_multiply_by(current_temporary(), SIZEOFUINT);
+    emit_add(previous_temporary(), previous_temporary(), current_temporary());
+
+    tfree(1);
+
+    get_expected_symbol(SYM_RBRACKET);
+
+    // load element value from computed address
+    emit_load(current_temporary(), current_temporary(), 0);
 
     type = UINT64_T;
   }
