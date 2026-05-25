@@ -478,6 +478,7 @@ uint64_t SYM_INT      = 32; // int
 uint64_t SYM_CHAR     = 33; // char
 uint64_t SYM_UNSIGNED = 34; // unsigned
 uint64_t SYM_CONST    = 35; // const
+uint64_t SYM_STRUCT   = 36; // struct
 
 uint64_t* SYMBOLS; // strings representing symbols
 
@@ -516,7 +517,7 @@ uint64_t source_fd   = 0; // file descriptor of open source file
 // ------------------------- INITIALIZATION ------------------------
 
 void init_scanner () {
-  SYMBOLS = smalloc((SYM_CONST + 1) * sizeof(uint64_t*));
+  SYMBOLS = smalloc((SYM_STRUCT + 1) * sizeof(uint64_t*));
 
   *(SYMBOLS + SYM_INTEGER)      = (uint64_t) "integer";
   *(SYMBOLS + SYM_CHARACTER)    = (uint64_t) "character";
@@ -555,6 +556,7 @@ void init_scanner () {
   *(SYMBOLS + SYM_CHAR)     = (uint64_t) "char";
   *(SYMBOLS + SYM_UNSIGNED) = (uint64_t) "unsigned";
   *(SYMBOLS + SYM_CONST)    = (uint64_t) "const";
+  *(SYMBOLS + SYM_STRUCT)   = (uint64_t) "struct";
 
   character = CHAR_EOF;
   symbol    = SYM_EOF;
@@ -583,7 +585,7 @@ void reset_scanner() {
 // | 0 | next    | pointer to next entry
 // | 1 | string  | identifier string, big integer as string, string literal
 // | 2 | line#   | source line number
-// | 3 | class   | VARIABLE, BIGINT, STRING, PROCEDURE, MACRO
+// | 3 | class   | VARIABLE, BIGINT, STRING, PROCEDURE, MACRO, STRUCT, MEMBER
 // | 4 | type    | UINT64_T, UINT64STAR_T, VOID_T, UNDECLARED_T
 // | 5 | value   | VARIABLE: initial value, PROCEDURE: number of formal parameters
 // | 6 | address | VARIABLE, BIGINT, STRING: offset, PROCEDURE: address (LSB encodes array declarator)
@@ -640,6 +642,8 @@ uint64_t BIGINT    = 2;
 uint64_t STRING    = 3;
 uint64_t PROCEDURE = 4;
 uint64_t MACRO     = 5;
+uint64_t STRUCT    = 6; // struct type entry
+uint64_t MEMBER    = 7; // struct member entry
 
 // types
 uint64_t UINT64_T     = 1;
@@ -1231,6 +1235,8 @@ uint64_t dc_global_variable = 0;
 uint64_t dc_string          = 0;
 uint64_t dc_string_bytes    = 0;
 uint64_t dc_big_integer     = 0;
+
+uint64_t* current_struct_entry = (uint64_t*) 0; // set by compile_type() when parsing struct type
 
 char* binary_name = (char*) 0; // file name of binary
 
@@ -3782,6 +3788,8 @@ uint64_t identifier_or_keyword() {
   else if (identifier_string_match(SYM_CONST))
     // selfie bootstraps const to uint64_t!
     return SYM_UINT64;
+  else if (identifier_string_match(SYM_STRUCT))
+    return SYM_STRUCT;
   else
     return SYM_IDENTIFIER;
 }
@@ -4300,7 +4308,12 @@ void tfree(uint64_t number_of_temporaries) {
 // -----------------------------------------------------------------
 
 uint64_t is_type() {
-  return symbol == SYM_UINT64;
+  if (symbol == SYM_UINT64)
+    return 1;
+  else if (symbol == SYM_STRUCT)
+    return 1;
+  else
+    return 0;
 }
 
 uint64_t is_value() {
@@ -4511,6 +4524,12 @@ void compile_cstar() {
   uint64_t i;
   char* variable_or_procedure;
   uint64_t* entry;
+  char* struct_name_c;
+  uint64_t* struct_entry_c;
+  uint64_t* member_entry_c;
+  uint64_t member_count_c;
+  uint64_t member_type_c;
+  uint64_t* member_struct_c;
 
   while (symbol != SYM_EOF) {
     // synchronizing on strong symbols in case of syntax errors
@@ -4523,7 +4542,117 @@ void compile_cstar() {
         get_symbol();
     }
 
-    if (is_type()) {
+    if (symbol == SYM_STRUCT) {
+      // struct definition OR global struct pointer variable
+      get_symbol(); // consume 'struct'
+
+      if (symbol != SYM_IDENTIFIER) {
+        syntax_error_expected_symbol(SYM_IDENTIFIER);
+      } else {
+        struct_name_c = identifier;
+        get_symbol(); // consume struct name
+
+        if (symbol == SYM_LBRACE) {
+          // struct definition: struct name { member_decls } ;
+          struct_entry_c = search_global_symbol_table(struct_name_c, STRUCT);
+          if (struct_entry_c == (uint64_t*) 0)
+            struct_entry_c = create_symbol_table_entry(GLOBAL_TABLE, struct_name_c,
+              line_number, STRUCT, UINT64STAR_T, 0, 0);
+
+          get_symbol(); // consume '{'
+
+          member_count_c = 0;
+          while (is_neither_rbrace_nor_eof()) {
+            if (symbol == SYM_STRUCT) {
+              get_symbol(); // consume 'struct'
+              if (symbol == SYM_IDENTIFIER) {
+                member_struct_c = search_global_symbol_table(identifier, STRUCT);
+                get_symbol(); // consume struct name
+              } else {
+                syntax_error_expected_symbol(SYM_IDENTIFIER);
+                member_struct_c = (uint64_t*) 0;
+              }
+              get_expected_symbol(SYM_ASTERISK);
+              member_type_c = UINT64STAR_T;
+            } else if (is_type()) {
+              member_struct_c = (uint64_t*) 0;
+              member_type_c = compile_type();
+            } else {
+              syntax_error_unexpected_symbol();
+              get_symbol();
+              member_struct_c = (uint64_t*) 0;
+              member_type_c = UINT64_T;
+            }
+
+            if (symbol == SYM_IDENTIFIER) {
+              member_entry_c = allocate_symbol_table_entry();
+              set_string(member_entry_c, identifier);
+              set_line_number(member_entry_c, line_number);
+              set_class(member_entry_c, MEMBER);
+              set_type(member_entry_c, member_type_c);
+              set_value(member_entry_c, (uint64_t) member_struct_c);
+              set_address(member_entry_c, member_count_c);
+              set_scope(member_entry_c, 0);
+              set_next_entry(member_entry_c, (uint64_t*) get_value(struct_entry_c));
+              set_value(struct_entry_c, (uint64_t) member_entry_c);
+
+              member_count_c = member_count_c + 1;
+              get_symbol(); // consume member name
+            } else
+              syntax_error_expected_symbol(SYM_IDENTIFIER);
+
+            get_expected_symbol(SYM_SEMICOLON);
+          }
+
+          get_expected_symbol(SYM_RBRACE);
+          get_expected_symbol(SYM_SEMICOLON);
+
+        } else if (symbol == SYM_ASTERISK) {
+          // global struct pointer variable: struct name* varname;
+          get_symbol(); // consume '*'
+          struct_entry_c = search_global_symbol_table(struct_name_c, STRUCT);
+
+          if (symbol == SYM_IDENTIFIER) {
+            variable_or_procedure = identifier;
+            get_symbol(); // consume variable name
+
+            if (symbol == SYM_LPARENTHESIS) {
+              compile_procedure(variable_or_procedure, UINT64STAR_T);
+            } else {
+              current_struct_entry = struct_entry_c;
+              entry = compile_variable(variable_or_procedure, UINT64STAR_T, 0, 0);
+              current_struct_entry = (uint64_t*) 0;
+              variable_bytes = allocated_variable_bytes;
+
+              if (is_array(entry)) {
+                if (symbol == SYM_ASSIGN) {
+                  syntax_error_message("array initialization is undefined");
+
+                  exit(EXITCODE_PARSERERROR);
+                }
+
+                i = 0;
+
+                while (i < variable_bytes) {
+                  emit_data_word(0, get_address(entry) + i, get_line_number(entry));
+
+                  i = i + WORDSIZE;
+                }
+
+                dc_global_variable = dc_global_variable + variable_bytes / WORDSIZE;
+              } else {
+                emit_data_word(0, get_address(entry), get_line_number(entry));
+                dc_global_variable = dc_global_variable + 1;
+              }
+
+              get_expected_symbol(SYM_SEMICOLON);
+            }
+          } else
+            syntax_error_expected_symbol(SYM_IDENTIFIER);
+        } else
+          syntax_error_unexpected_symbol();
+      }
+    } else if (is_type()) {
       type = compile_type();
 
       if (symbol == SYM_IDENTIFIER) {
@@ -4629,6 +4758,10 @@ uint64_t* compile_variable(char* variable, uint64_t type, uint64_t offset, uint6
       if (array_length != 0)
         set_array(entry, 1);
 
+      if (current_struct_entry != (uint64_t*) 0)
+        if (not(is_array(entry)))
+          set_value(entry, (uint64_t) current_struct_entry);
+
       number_of_global_variables = number_of_global_variables + 1;
     } else {
       // global variable already declared or defined
@@ -4660,6 +4793,10 @@ uint64_t* compile_variable(char* variable, uint64_t type, uint64_t offset, uint6
       if (array_length != 0)
         if (not(is_parameter))
           set_array(entry, 1);
+
+      if (current_struct_entry != (uint64_t*) 0)
+        if (not(is_array(entry)))
+          set_value(entry, (uint64_t) current_struct_entry);
     } else {
       syntax_error_expected_symbol(SYM_IDENTIFIER);
 
@@ -4677,6 +4814,30 @@ uint64_t compile_type() {
   uint64_t type;
 
   type = UINT64_T;
+
+  current_struct_entry = (uint64_t*) 0;
+
+  if (symbol == SYM_STRUCT) {
+    get_symbol(); // consume 'struct'
+
+    if (symbol == SYM_IDENTIFIER) {
+      current_struct_entry = search_global_symbol_table(identifier, STRUCT);
+      get_symbol(); // consume struct name
+    } else
+      syntax_error_expected_symbol(SYM_IDENTIFIER);
+
+    if (symbol != SYM_ASTERISK) {
+      syntax_error_expected_symbol(SYM_ASTERISK);
+      type = UINT64STAR_T;
+    }
+
+    while (symbol == SYM_ASTERISK) {
+      type = UINT64STAR_T;
+      get_symbol();
+    }
+
+    return type;
+  }
 
   if (is_type()) {
     get_symbol();
