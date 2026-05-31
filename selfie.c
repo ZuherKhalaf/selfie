@@ -470,15 +470,16 @@ uint64_t SYM_GT           = 27; // >
 uint64_t SYM_GEQ          = 28; // >=
 uint64_t SYM_LBRACKET     = 29; // [
 uint64_t SYM_RBRACKET     = 30; // ]
-uint64_t SYM_ELLIPSIS     = 31; // ...
+uint64_t SYM_ARROW        = 31; // ->
+uint64_t SYM_ELLIPSIS     = 32; // ...
 
 // symbols for bootstrapping
 
-uint64_t SYM_INT      = 32; // int
-uint64_t SYM_CHAR     = 33; // char
-uint64_t SYM_UNSIGNED = 34; // unsigned
-uint64_t SYM_CONST    = 35; // const
-uint64_t SYM_STRUCT   = 36; // struct
+uint64_t SYM_INT      = 33; // int
+uint64_t SYM_CHAR     = 34; // char
+uint64_t SYM_UNSIGNED = 35; // unsigned
+uint64_t SYM_CONST    = 36; // const
+uint64_t SYM_STRUCT   = 37; // struct
 
 uint64_t* SYMBOLS; // strings representing symbols
 
@@ -550,6 +551,7 @@ void init_scanner () {
   *(SYMBOLS + SYM_GEQ)          = (uint64_t) ">=";
   *(SYMBOLS + SYM_LBRACKET)     = (uint64_t) "[";
   *(SYMBOLS + SYM_RBRACKET)     = (uint64_t) "]";
+  *(SYMBOLS + SYM_ARROW)        = (uint64_t) "->";
   *(SYMBOLS + SYM_ELLIPSIS)     = (uint64_t) "...";
 
   *(SYMBOLS + SYM_INT)      = (uint64_t) "int";
@@ -740,7 +742,9 @@ uint64_t load_value(uint64_t* entry);
 
 uint64_t* get_variable_entry(char* variable);
 uint64_t  load_variable(char* variable);
+uint64_t* get_struct_member_entry(uint64_t* struct_entry, char* member);
 uint64_t  compile_array_offset(uint64_t base_type);
+void      add_offset_to_current_temporary(uint64_t offset);
 
 void compile_assignment(char* variable);
 
@@ -4005,7 +4009,12 @@ void get_symbol() {
       } else if (character == CHAR_DASH) {
         get_character();
 
-        symbol = SYM_MINUS;
+        if (character == CHAR_GT) {
+          get_character();
+
+          symbol = SYM_ARROW;
+        } else
+          symbol = SYM_MINUS;
       } else if (character == CHAR_ASTERISK) {
         get_character();
 
@@ -4591,7 +4600,7 @@ void compile_cstar() {
               set_class(member_entry_c, MEMBER);
               set_type(member_entry_c, member_type_c);
               set_value(member_entry_c, (uint64_t) member_struct_c);
-              set_address(member_entry_c, member_count_c);
+              set_address(member_entry_c, member_count_c * SIZEOFUINT);
               set_scope(member_entry_c, 0);
               set_next_entry(member_entry_c, (uint64_t*) get_value(struct_entry_c));
               set_value(struct_entry_c, (uint64_t) member_entry_c);
@@ -4759,8 +4768,7 @@ uint64_t* compile_variable(char* variable, uint64_t type, uint64_t offset, uint6
         set_array(entry, 1);
 
       if (current_struct_entry != (uint64_t*) 0)
-        if (not(is_array(entry)))
-          set_value(entry, (uint64_t) current_struct_entry);
+        set_value(entry, (uint64_t) current_struct_entry);
 
       number_of_global_variables = number_of_global_variables + 1;
     } else {
@@ -4795,8 +4803,7 @@ uint64_t* compile_variable(char* variable, uint64_t type, uint64_t offset, uint6
           set_array(entry, 1);
 
       if (current_struct_entry != (uint64_t*) 0)
-        if (not(is_array(entry)))
-          set_value(entry, (uint64_t) current_struct_entry);
+        set_value(entry, (uint64_t) current_struct_entry);
     } else {
       syntax_error_expected_symbol(SYM_IDENTIFIER);
 
@@ -5126,6 +5133,29 @@ uint64_t load_variable(char* variable) {
     return load_value(entry);
 }
 
+uint64_t* get_struct_member_entry(uint64_t* struct_entry, char* member) {
+  uint64_t* member_entry;
+
+  if (struct_entry == (uint64_t*) 0) {
+    syntax_error_message("struct access is undefined");
+
+    exit(EXITCODE_PARSERERROR);
+  }
+
+  member_entry = (uint64_t*) get_value(struct_entry);
+
+  while (member_entry != (uint64_t*) 0) {
+    if (string_compare(get_string(member_entry), member))
+      return member_entry;
+
+    member_entry = get_next_entry(member_entry);
+  }
+
+  syntax_error_undeclared_identifier(member);
+
+  exit(EXITCODE_PARSERERROR);
+}
+
 uint64_t compile_array_offset(uint64_t base_type) {
   uint64_t index_type;
 
@@ -5149,17 +5179,42 @@ uint64_t compile_array_offset(uint64_t base_type) {
   return UINT64STAR_T;
 }
 
+void add_offset_to_current_temporary(uint64_t offset) {
+  if (offset != 0) {
+    if (is_signed_integer(offset, 12))
+      emit_addi(current_temporary(), current_temporary(), offset);
+    else {
+      talloc();
+
+      load_small_and_medium_integer(current_temporary(), offset);
+
+      emit_add(previous_temporary(), previous_temporary(), current_temporary());
+
+      tfree(1);
+    }
+  }
+}
+
 void compile_assignment(char* variable) {
   uint64_t dereference;
+  uint64_t free_temporary;
   uint64_t* entry;
+  uint64_t* struct_entry;
+  uint64_t* member_entry;
   uint64_t base;
   uint64_t offset;
   uint64_t ltype;
   uint64_t rtype;
+  uint64_t member_offset;
+  uint64_t member_type;
+  char* member_name;
 
   // assert: identifier has already been parsed if variable != (char*) 0
 
   // assert: allocated_temporaries == 0
+
+  free_temporary = 0;
+  struct_entry   = (uint64_t*) 0;
 
   if (variable != (char*) 0) {
     // variable is identifier
@@ -5184,6 +5239,70 @@ void compile_assignment(char* variable) {
       // assert: allocated_temporaries == 1
       base   = current_temporary();
       offset = 0;
+      free_temporary = 1;
+    } else if (symbol == SYM_ARROW) {
+      if (is_array(entry)) {
+        syntax_error_message("struct access is undefined");
+
+        exit(EXITCODE_PARSERERROR);
+      }
+
+      if (get_type(entry) != UINT64STAR_T) {
+        syntax_error_message("struct access is undefined");
+
+        exit(EXITCODE_PARSERERROR);
+      } else if (get_value(entry) == 0) {
+        syntax_error_message("struct access is undefined");
+
+        exit(EXITCODE_PARSERERROR);
+      }
+
+      ltype = load_value(entry);
+
+      // assert: allocated_temporaries == 1
+      base   = current_temporary();
+      offset = 0;
+
+      free_temporary = 1;
+      struct_entry   = (uint64_t*) get_value(entry);
+
+      while (symbol == SYM_ARROW) {
+        get_symbol();
+
+        if (symbol == SYM_IDENTIFIER) {
+          member_name = identifier;
+
+          get_symbol();
+
+          member_entry  = get_struct_member_entry(struct_entry, member_name);
+          member_offset = get_address(member_entry);
+
+          add_offset_to_current_temporary(member_offset);
+
+          member_type = get_type(member_entry);
+
+          if (symbol == SYM_ARROW) {
+            if (member_type != UINT64STAR_T) {
+              syntax_error_message("struct access is undefined");
+
+              exit(EXITCODE_PARSERERROR);
+            } else if (get_value(member_entry) == 0) {
+              syntax_error_message("struct access is undefined");
+
+              exit(EXITCODE_PARSERERROR);
+            }
+
+            emit_load(current_temporary(), current_temporary(), 0);
+
+            struct_entry = (uint64_t*) get_value(member_entry);
+          } else
+            ltype = member_type;
+        } else {
+          syntax_error_unexpected_identifier("identifier");
+
+          exit(EXITCODE_PARSERERROR);
+        }
+      }
     } else {
       if (is_array(entry)) {
         syntax_error_message("array assignment is undefined");
@@ -5201,6 +5320,9 @@ void compile_assignment(char* variable) {
         base = current_temporary();
 
       ltype = get_type(entry);
+
+      if (offset != get_address(entry))
+        free_temporary = 1;
     }
   } else {
     // "*" identifier | "*" "(" expression ")"
@@ -5239,6 +5361,7 @@ void compile_assignment(char* variable) {
     // assert: allocated_temporaries == 1
     base   = current_temporary();
     offset = 0;
+    free_temporary = 1;
   }
 
   // assert: base + offset is address where to store
@@ -5267,10 +5390,7 @@ void compile_assignment(char* variable) {
   } else
     syntax_error_expected_symbol(SYM_ASSIGN);
 
-  if (dereference)
-    // assert: allocated_temporaries == 1
-    tfree(1);
-  else if (offset != get_address(entry))
+  if (free_temporary)
     // assert: allocated_temporaries == 1
     tfree(1);
 
@@ -5472,7 +5592,13 @@ uint64_t compile_factor() {
   uint64_t type;
   uint64_t negative;
   uint64_t dereference;
+  uint64_t* entry;
+  uint64_t* struct_entry;
+  uint64_t* member_entry;
+  uint64_t member_offset;
+  uint64_t member_type;
   char* variable_or_procedure;
+  char* member_name;
 
   // assert: n = allocated_temporaries
 
@@ -5551,10 +5677,16 @@ uint64_t compile_factor() {
 
     get_symbol();
 
-    if (symbol != SYM_LPARENTHESIS)
+    if (symbol != SYM_LPARENTHESIS) {
       // variable access: identifier ...
-      type = load_variable(variable_or_procedure);
-    else {
+      entry = get_variable_entry(variable_or_procedure);
+      type  = load_variable(variable_or_procedure);
+
+      struct_entry = (uint64_t*) 0;
+
+      if (get_type(entry) == UINT64STAR_T)
+        struct_entry = (uint64_t*) get_value(entry);
+    } else {
       // procedure call: identifier "(" ... ")"
       type = compile_call(variable_or_procedure);
 
@@ -5567,6 +5699,8 @@ uint64_t compile_factor() {
         // TODO: check if used as actual parameter
         // for now just load deterministic value
         emit_addi(current_temporary(), REG_ZR, 0);
+
+      struct_entry = (uint64_t*) 0;
     }
 
     while (symbol == SYM_LBRACKET) {
@@ -5578,6 +5712,46 @@ uint64_t compile_factor() {
       emit_load(current_temporary(), current_temporary(), 0);
 
       type = UINT64_T;
+      struct_entry = (uint64_t*) 0;
+    }
+
+    while (symbol == SYM_ARROW) {
+      if (type != UINT64STAR_T) {
+        syntax_error_message("struct access is undefined");
+
+        exit(EXITCODE_PARSERERROR);
+      } else if (struct_entry == (uint64_t*) 0) {
+        syntax_error_message("struct access is undefined");
+
+        exit(EXITCODE_PARSERERROR);
+      }
+
+      get_symbol();
+
+      if (symbol == SYM_IDENTIFIER) {
+        member_name = identifier;
+
+        get_symbol();
+
+        member_entry  = get_struct_member_entry(struct_entry, member_name);
+        member_offset = get_address(member_entry);
+
+        add_offset_to_current_temporary(member_offset);
+
+        emit_load(current_temporary(), current_temporary(), 0);
+
+        member_type = get_type(member_entry);
+        type        = member_type;
+
+        if (member_type == UINT64STAR_T)
+          struct_entry = (uint64_t*) get_value(member_entry);
+        else
+          struct_entry = (uint64_t*) 0;
+      } else {
+        syntax_error_unexpected_identifier("identifier");
+
+        exit(EXITCODE_PARSERERROR);
+      }
     }
   } else if (symbol == SYM_LPARENTHESIS) {
     // "(" expression ")"
